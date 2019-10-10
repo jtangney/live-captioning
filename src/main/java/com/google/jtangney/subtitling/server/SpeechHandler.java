@@ -123,21 +123,21 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
 
     SpeechRecognitionAlternative alternative = result.getAlternativesList().get(0);
     if (result.getIsFinal()) {
-      System.out.print(GREEN);
-      System.out.print("\033[2K\r");
-      System.out.printf("%s: %s [confidence: %.2f]\n",
+      logger.info(GREEN);
+      logger.info("\033[2K\r");
+      logger.info(String.format("%s: %s [confidence: %.2f]\n",
           convertMillisToDate(correctedTime),
           alternative.getTranscript(),
           alternative.getConfidence()
-      );
+      ));
       isFinalEndTime = resultEndTimeInMS;
       lastTranscriptWasFinal = true;
     }
     else {
-      System.out.print(RED);
-      System.out.print("\033[2K\r");
-      System.out.printf("%s: %s", convertMillisToDate(correctedTime),
-          alternative.getTranscript()
+      logger.info(RED);
+      logger.info("\033[2K\r");
+      logger.info(String.format("%s: %s", convertMillisToDate(correctedTime),
+          alternative.getTranscript())
       );
       lastTranscriptWasFinal = false;
     }

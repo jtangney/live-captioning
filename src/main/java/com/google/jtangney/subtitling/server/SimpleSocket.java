@@ -1,14 +1,8 @@
 package com.google.jtangney.subtitling.server;
 
-import com.google.api.gax.rpc.BidiStreamingCallable;
-import com.google.cloud.speech.v1.*;
-import com.google.protobuf.ByteString;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketAdapter;
 
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 

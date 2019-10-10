@@ -21,8 +21,8 @@ public class Main {
     try {
       WebSocketClient client = new WebSocketClient();
       client.start();
-      // URI uri = new URI("ws://35.244.194.43:80/transcribe");
-      URI uri = new URI("ws://localhost:8080/transcribe");
+       URI uri = new URI("ws://35.244.194.43:80/transcribe");
+//      URI uri = new URI("ws://localhost:8080/transcribe");
       ClientUpgradeRequest request = new ClientUpgradeRequest();
       System.out.printf("Connecting to : %s%n", uri);
       Future<Session> session = client.connect(socket, uri, request);
