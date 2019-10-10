@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+  <packaging>${packaging.type}</packaging>
+  <groupId>com.google.jtangney</groupId>
+  <artifactId>subtitling</artifactId>
+  <version>1.0-SNAPSHOT</version>
+
+  <properties>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <jetty.maven.version>9.4.21.v20190926</jetty.maven.version>
+    <failOnMissingWebXml>false</failOnMissingWebXml>
+  </properties>
+
+  <dependencies>
+    <!--        <dependency>-->
+    <!--            <groupId>javax.servlet</groupId>-->
+    <!--            <artifactId>javax.servlet-api</artifactId>-->
+    <!--            <version>3.1.0</version>-->
+    <!--            <type>jar</type>-->
+    <!--            <scope>provided</scope>-->
+    <!--        </dependency>-->
+    <!--        <dependency>-->
+    <!--            <groupId>org.eclipse.jetty.websocket</groupId>-->
+    <!--            <artifactId>websocket-servlet</artifactId>-->
+    <!--            <version>9.4.1.v20170120</version>-->
+    <!--        </dependency>-->
+    <dependency>
+      <groupId>com.google.cloud</groupId>
+      <artifactId>google-cloud-speech</artifactId>
+      <version>1.20.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.8.5</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.websocket</groupId>
+      <artifactId>websocket-client</artifactId>
+      <version>${jetty.maven.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
+      <version>3.1.0</version>
+      <type>jar</type>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.websocket</groupId>
+      <artifactId>websocket-servlet</artifactId>
+      <version>${jetty.maven.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <!-- for hot reload of the web application -->
+    <outputDirectory>${project.build.directory}/${project.build.finalName}/WEB-INF/classes</outputDirectory>
+    <plugins>
+      <plugin>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-maven-plugin</artifactId>
+        <version>${jetty.maven.version}</version>
+        <configuration>
+          <jettyXml>jetty.xml</jettyXml>
+          <webApp>
+            <defaultsDescriptor>webdefault.xml</defaultsDescriptor>
+          </webApp>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.6.0</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>java</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <mainClass>com.google.jtangney.subtitling.client.Main</mainClass>
+          <cleanupDaemonThreads>false</cleanupDaemonThreads>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>client</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <properties>
+        <packaging.type>jar</packaging.type>
+      </properties>
+    </profile>
+    <profile>
+      <id>server</id>
+      <properties>
+        <packaging.type>war</packaging.type>
+      </properties>
+    </profile>
+  </profiles>
+
+</project>
