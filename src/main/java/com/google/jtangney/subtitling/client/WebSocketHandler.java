@@ -12,25 +12,21 @@ public class WebSocketHandler {
 
   private Session session;
 
-  @OnWebSocketClose
-  public void onClose(int statusCode, String reason) {
-    System.out.printf("Connection closed: %d - %s%n", statusCode, reason);
-    this.session = null;
-    System.exit(1);
-  }
-
   @OnWebSocketConnect
   public void onConnect(Session session) {
     System.out.printf("Got connect: %s%n", session);
     this.session = session;
   }
 
+  @OnWebSocketClose
+  public void onClose(int statusCode, String reason) {
+    System.out.printf("Connection closed: %d - %s%n", statusCode, reason);
+    this.session = null;
+  }
+
   @OnWebSocketMessage
   public void onMessage(String msg) {
     System.out.printf("Got msg: %s%n", msg);
-    if (msg.contains("Thanks")) {
-      session.close(StatusCode.NORMAL, "I'm done");
-    }
   }
 
   @OnWebSocketError
@@ -55,7 +51,7 @@ public class WebSocketHandler {
     }
   }
 
-  private boolean isConnected() {
+   boolean isConnected() {
     return this.session != null && this.session.isOpen();
   }
 }

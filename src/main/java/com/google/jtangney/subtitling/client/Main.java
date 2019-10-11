@@ -17,20 +17,15 @@ public class Main {
   private static volatile BlockingQueue<byte[]> sharedQueue = new LinkedBlockingQueue();
 
   public static void main(String[] args) {
-    WebSocketHandler socket = new WebSocketHandler();
+    String host = System.getProperty("socketServer");
+    System.out.println(host);
+    WebSocketHandler socket = null;
     try {
-      WebSocketClient client = new WebSocketClient();
-      client.start();
-       URI uri = new URI("ws://35.244.194.43:80/transcribe");
-//      URI uri = new URI("ws://localhost:8080/transcribe");
-      ClientUpgradeRequest request = new ClientUpgradeRequest();
-      System.out.printf("Connecting to : %s%n", uri);
-      Future<Session> session = client.connect(socket, uri, request);
-      // block until we're connected
-      session.get(5, TimeUnit.SECONDS);
+      socket = websocketConnect(host);
     }
     catch (Exception e) {
-      throw new RuntimeException("Problem setting up websocket", e);
+      e.printStackTrace();
+      System.exit(1);
     }
 
     MicrophoneClient mic = new MicrophoneClient(sharedQueue);
@@ -41,15 +36,39 @@ public class Main {
     ByteString tempByteString;
     try {
       while (true) {
-        long estimatedTime = System.currentTimeMillis() - startTime;
-        // read some audio bytes from the queue
-        tempByteString = ByteString.copyFrom(sharedQueue.take());
-        socket.send(tempByteString.toByteArray());
+        if (socket.isConnected()) {
+          long estimatedTime = System.currentTimeMillis() - startTime;
+          // read some audio bytes from the queue
+          tempByteString = ByteString.copyFrom(sharedQueue.take());
+          socket.send(tempByteString.toByteArray());
+        }
+        else {
+          System.out.println("WebSocket not connected! Retrying connection...");
+          try {
+            socket = websocketConnect(host);
+          }
+          catch (Exception e) {
+            System.out.println("Failed to connect: "+ e.getMessage());
+          }
+        }
       }
     }
     catch (Exception e) {
       System.exit(1);
     }
 
+  }
+
+  static WebSocketHandler websocketConnect(String host) throws Exception {
+    WebSocketHandler socket = new WebSocketHandler();
+    WebSocketClient client = new WebSocketClient();
+    client.start();
+    URI uri = new URI(String.format("ws://%s/transcribe", host));
+    ClientUpgradeRequest request = new ClientUpgradeRequest();
+    System.out.printf("Connecting to : %s%n", uri);
+    Future<Session> session = client.connect(socket, uri, request);
+    // block until we're connected
+    session.get(5, TimeUnit.SECONDS);
+    return socket;
   }
 }
