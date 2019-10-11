@@ -83,14 +83,20 @@
 
   <profiles>
     <profile>
-      <id>client</id>
+      <id>client-local</id>
       <activation>
         <activeByDefault>true</activeByDefault>
       </activation>
       <properties>
         <packaging.type>jar</packaging.type>
         <server.host>localhost:8080</server.host>
-<!--        <server.host>35.244.194.43:80</server.host>-->
+      </properties>
+    </profile>
+    <profile>
+      <id>client-remote</id>
+      <properties>
+        <packaging.type>jar</packaging.type>
+        <server.host>35.244.194.43:80</server.host>
       </properties>
     </profile>
     <profile>

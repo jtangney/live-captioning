@@ -26,7 +26,7 @@ import javax.servlet.annotation.WebServlet;
 public class TranscribeServlet extends WebSocketServlet {
 
   // Timeout in milliseconds
-  private static final int TIMEOUT = 10000;
+  private static final int TIMEOUT = 300000;
 
   @Override
   public void configure(WebSocketServletFactory factory) {
