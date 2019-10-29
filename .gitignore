@@ -17,4 +17,4 @@ target/
 venv/
 *.pyc
 
-client/
+src/**/client/
