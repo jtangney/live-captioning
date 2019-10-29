@@ -1,0 +1,9 @@
+gcloud container clusters create speech-cluster --scopes=gke-default,cloud-platform \
+--num-nodes=1 --node-locations=europe-west1-b,europe-west1-d \
+--enable-ip-alias
+
+gcloud container clusters get-credentials speech-cluster
+
+#kubectl create deployment transcriber --image=eu.gcr.io/jtgcp-subtitles/sky-subtitling
+kubectl apply -f k8s/transcriber.yaml
+
