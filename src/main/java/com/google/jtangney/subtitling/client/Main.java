@@ -28,14 +28,14 @@ public class Main {
       System.exit(1);
     }
 
-    MicrophoneClient mic = new MicrophoneClient(sharedQueue);
-    System.out.printf("Starting to collect audio from microphone...");
-    mic.start();
+//    AudioClient client = new MicClient(sharedQueue);
+    AudioClient client = new FileClient(sharedQueue);
+    new Thread(client).start();
 
     long startTime = System.currentTimeMillis();
     ByteString tempByteString;
     try {
-      while (true) {
+      while (client.isOpen()) {
         if (socket.isConnected()) {
           long estimatedTime = System.currentTimeMillis() - startTime;
           // read some audio bytes from the queue
@@ -52,8 +52,12 @@ public class Main {
           }
         }
       }
+      if (!client.isOpen()) {
+        socket.close();
+      }
     }
     catch (Exception e) {
+      e.printStackTrace();
       System.exit(1);
     }
 

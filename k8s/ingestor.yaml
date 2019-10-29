@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestor-deployment
+spec:
+  selector:
+    matchLabels:
+      app: ingestor
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: ingestor
+        dummy: test6
+    spec:
+      containers:
+        - name: ingestor
+          image: eu.gcr.io/jtgcp-subtitles/subtitling-ingest:latest
+          env:
+            - name: PODNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - containerPort: 8080
+
+#---
+#apiVersion: policy/v1beta1
+#kind: PodDisruptionBudget
+#metadata:
+#  name: zk-pdb
+#spec:
+#  minAvailable: 1
+#  selector:
+#    matchLabels:
+#      app: transcriber
+#
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestor-service
+spec:
+  selector:
+    app: ingestor
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer

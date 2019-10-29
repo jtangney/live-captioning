@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
-package com.google.jtangney.subtitling.server;
+package com.google.jtangney.subtitling.ingest;
 
 import org.eclipse.jetty.websocket.servlet.WebSocketServlet;
 import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
 
 import javax.servlet.annotation.WebServlet;
 
-// [START example]
-@WebServlet("/transcribe")
-public class TranscribeServlet extends WebSocketServlet {
+@WebServlet("/ingest")
+public class IngestServlet extends WebSocketServlet {
 
   // Timeout in milliseconds
   private static final int TIMEOUT = 300000;
@@ -31,10 +30,6 @@ public class TranscribeServlet extends WebSocketServlet {
   @Override
   public void configure(WebSocketServletFactory factory) {
     factory.getPolicy().setIdleTimeout(TIMEOUT);
-
-    // The WebSocket to create on upgrade
-//    factory.register(SimpleSocket.class);
-    factory.register(TranscribeSocket.class);
+    factory.register(IngestSocket.class);
   }
 }
-// [END example]

@@ -1,7 +1,6 @@
 package com.google.jtangney.subtitling.client;
 
 import org.eclipse.jetty.websocket.api.Session;
-import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.api.annotations.*;
 
 import java.io.IOException;
@@ -24,6 +23,13 @@ public class WebSocketHandler {
     this.session = null;
   }
 
+  public void close() {
+    if (isConnected()) {
+      System.out.println("Explicitly closing WebSocket");
+      this.session.close();
+    }
+  }
+
   @OnWebSocketMessage
   public void onMessage(String msg) {
     System.out.printf("Got msg: %s%n", msg);
@@ -41,7 +47,8 @@ public class WebSocketHandler {
 
   public void send(ByteBuffer bb) {
     if (!this.isConnected()) {
-      throw new RuntimeException(("Websocket not connected"));
+      System.out.println("Websocket not connected; aborting Send");
+      return;
     }
     try {
       this.session.getRemote().sendBytes(bb);

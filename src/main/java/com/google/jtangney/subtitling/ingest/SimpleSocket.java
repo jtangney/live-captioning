@@ -1,4 +1,4 @@
-package com.google.jtangney.subtitling.server;
+package com.google.jtangney.subtitling.ingest;
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketAdapter;
@@ -11,7 +11,7 @@ public class SimpleSocket extends WebSocketAdapter {
   private static final Logger logger = Logger.getLogger(SimpleSocket.class.getName());
 
   /**
-   * Called when the client sends this server some raw bytes (ie audio data).
+   * Called when the client sends this transcribe some raw bytes (ie audio data).
    */
   @Override
   public void onWebSocketBinary(byte[] payload, int offset, int len) {
@@ -21,7 +21,7 @@ public class SimpleSocket extends WebSocketAdapter {
   }
 
   /**
-   * Called when the client sends this server some text.
+   * Called when the client sends this transcribe some text.
    */
   @Override
   public void onWebSocketText(String message) {

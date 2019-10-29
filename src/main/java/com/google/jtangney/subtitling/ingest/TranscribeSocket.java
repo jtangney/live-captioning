@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.jtangney.subtitling.server;
+package com.google.jtangney.subtitling.ingest;
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketAdapter;
@@ -25,12 +25,13 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+@Deprecated
 public class TranscribeSocket extends WebSocketAdapter {
 
   private static final Logger logger = Logger.getLogger(TranscribeSocket.class.getName());
 
   private static volatile BlockingQueue<byte[]> sharedQueue = new LinkedBlockingQueue();
-  private SpeechHandler speechHandler;
+//  private SpeechHandler speechHandler;
 
 
   public TranscribeSocket() {
@@ -43,12 +44,12 @@ public class TranscribeSocket extends WebSocketAdapter {
   public void onWebSocketConnect(Session sess) {
     logger.info("Websocket connect!!");
     super.onWebSocketConnect(sess);
-    speechHandler = new SpeechHandler(sharedQueue, sess);
-    new Thread(speechHandler).start();
+//    speechHandler = new SpeechHandler(sharedQueue, sess);
+//    new Thread(speechHandler).start();
   }
 
   /**
-   * Called when the client sends this server some raw bytes (ie audio data).
+   * Called when the client sends this transcribe some raw bytes (ie audio data).
    */
   @Override
   public void onWebSocketBinary(byte[] payload, int offset, int len) {
@@ -58,7 +59,7 @@ public class TranscribeSocket extends WebSocketAdapter {
   }
 
   /**
-   * Called when the client sends this server some text.
+   * Called when the client sends this transcribe some text.
    */
   @Override
   public void onWebSocketText(String message) {
@@ -73,7 +74,7 @@ public class TranscribeSocket extends WebSocketAdapter {
   @Override
   public void onWebSocketClose(int statusCode, String reason) {
     logger.info("Websocket close.");
-    speechHandler.onCompleted();
+//    speechHandler.onCompleted();
   }
 
   /**
@@ -82,7 +83,7 @@ public class TranscribeSocket extends WebSocketAdapter {
   @Override
   public void onWebSocketError(Throwable cause) {
     logger.log(Level.WARNING, "Websocket error", cause);
-    speechHandler.onError(cause);
+//    speechHandler.onError(cause);
   }
 
 }
