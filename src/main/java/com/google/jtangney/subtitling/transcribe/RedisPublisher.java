@@ -1,5 +1,6 @@
 package com.google.jtangney.subtitling.transcribe;
 
+import com.google.jtangney.subtitling.util.JedisFactory;
 import redis.clients.jedis.Jedis;
 
 /**
@@ -13,8 +14,8 @@ public class RedisPublisher implements Publisher {
   private Jedis jedis;
 
   public RedisPublisher() {
-    this.jedis = new Jedis("localhost");
-    this.wrapped = new SimplePublisher();
+    this.jedis = JedisFactory.get();
+    this.wrapped = new LoggingPublisher();
   }
 
   @Override

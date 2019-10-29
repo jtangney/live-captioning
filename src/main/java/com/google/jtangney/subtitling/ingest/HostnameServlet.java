@@ -13,6 +13,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.logging.Logger;
 
+/**
+ * Utility servlet to print the hostname of the Compute Engine instance
+ * that the pod is running on. Debugging purposes.
+ */
 @WebServlet("hostname")
 public class HostnameServlet extends HttpServlet {
 
@@ -20,8 +24,9 @@ public class HostnameServlet extends HttpServlet {
   public static String HOSTNAME_URL = METADATA_URL + "instance/hostname";
 
   private static Logger logger = Logger.getLogger(HostnameServlet.class.getName());
-  private static final HttpClient httpClient = HttpClient.newBuilder()
-      .version(HttpClient.Version.HTTP_2).build();
+  private static final HttpClient httpClient = HttpClient.newBuilder().version(
+      HttpClient.Version.HTTP_2).build();
+
 
   protected void doGet(HttpServletRequest req, HttpServletResponse resp)
       throws ServletException, IOException {
@@ -39,20 +44,6 @@ public class HostnameServlet extends HttpServlet {
     String body = response.body();
     logger.info(body);
 
-//    URL url = new URL(HOSTNAME_URL);
-//    logger.info(HOSTNAME_URL);
-//    HttpURLConnection con = (HttpURLConnection) url.openConnection();
-//    con.addRequestProperty("Metadata-Flavor", "Google");
-//    con.setRequestMethod("GET");
-//
-//    BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
-//    StringBuilder sb = new StringBuilder();
-//    String inputLine;
-//    while ((inputLine = in.readLine()) != null)
-//      sb.append(inputLine);
-//    in.close();
-//    logger.info(sb.toString());
-//
     PrintWriter out = resp.getWriter();
     out.print(body);
     out.flush();

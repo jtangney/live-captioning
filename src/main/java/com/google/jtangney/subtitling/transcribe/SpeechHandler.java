@@ -42,14 +42,14 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
   private static boolean lastTranscriptWasFinal = false;
 
 
+  private ApiStreamObserver<StreamingRecognizeRequest> requestObserver;
+  private SpeechClient speech;
+  private final AtomicBoolean running = new AtomicBoolean(false);
+
   private static final int wordSettleLength = 4;
   private int lastIndex = 0;
   private String latestTranscript = null;
   private String[] unsent = null;
-
-  private ApiStreamObserver<StreamingRecognizeRequest> requestObserver;
-  private SpeechClient speech;
-  private final AtomicBoolean running = new AtomicBoolean(false);
 
   private AudioQueue sharedQueue;
   private Publisher publisher;
@@ -59,7 +59,7 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
   SpeechHandler(AudioQueue sharedQueue) {
     this.sharedQueue = sharedQueue;
 //    this.publisher = new RedisPublisher();
-    this.publisher = new SimplePublisher();
+    this.publisher = new LoggingPublisher();
   }
 
   private void initSpeech() {
@@ -67,6 +67,7 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       speech = SpeechClient.create();
       lastIndex = 0;
       latestTranscript = null;
+      unsent = null;
       BidiStreamingCallable<StreamingRecognizeRequest, StreamingRecognizeResponse> callable =
           speech.streamingRecognizeCallable();
 
@@ -100,14 +101,12 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
   public void run() {
     running.set(true);
     try {
-      long start = System.currentTimeMillis();
-      long restartAfter = 50000 * 1000;
       while (running.get()) {
+        // abort if we're not the leader (master)
         if (!LeaderChecker.isLeader()) {
           continue;
         }
-        // read some audio bytes from the queue
-//        ByteString tempByteString = ByteString.copyFrom(sharedQueue.take());
+        // (blocking) read some audio bytes from the queue
         byte[] bytes = Base64.getDecoder().decode(sharedQueue.take());
         // don't init speech until we have some bytes
         if (this.speech == null || speech.isShutdown()) {
@@ -122,16 +121,6 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
                 .setAudioContent(ByteString.copyFrom(bytes))
                 .build();
         requestObserver.onNext(request);
-        if (System.currentTimeMillis() - start > restartAfter) {
-          long interim = System.currentTimeMillis();
-          stop();
-          Thread.sleep(5000);
-          speech.close();
-          this.initSpeech();
-          this.running.set(true);
-          start = System.currentTimeMillis();
-          System.out.printf("%n****RESTARTED SPEECH CONNECTION in %dms*****!", start - interim);
-        }
       }
     }
     catch (Exception e) {
@@ -156,22 +145,28 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
 
   private void publishIncremental(List<StreamingRecognitionResult> results) {
     StreamingRecognitionResult result = results.get(0);
+    // ignore if first result is early stage, low confidence
     if (result.getStability() < 0.89) {
       return;
     }
-    SpeechRecognitionAlternative alternative = result.getAlternativesList().get(0);
 
+    SpeechRecognitionAlternative alternative = result.getAlternativesList().get(0);
     String transcript = alternative.getTranscript();
     this.latestTranscript = transcript;
     String[] elements = transcript.split(" ");
 
+    if (result.getIsFinal()) {
+      System.out.printf("%nFINAL RESULT - resetting counts%n");
+      String[] segment = Arrays.copyOfRange(elements, lastIndex, elements.length);
+      publisher.publish(String.join(" ", segment));
+      this.lastIndex = 0;
+      this.unsent = null;
+      return;
+    }
+
     if (elements.length <= wordSettleLength) {
-      if (unsent != null) {
-        publisher.publish(String.join(" ", unsent));
-        unsent = null;
-      }
-      lastIndex = 0;
       //System.out.printf("Ignoring short result%n");
+      flush();
       return;
     }
     if (lastIndex < (elements.length - wordSettleLength)) {
@@ -179,10 +174,6 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       publisher.publish(String.join(" ", segment));
       unsent = Arrays.copyOfRange(elements, elements.length - wordSettleLength, elements.length);
       lastIndex += segment.length;
-    }
-    if (result.getIsFinal()) {
-      this.lastIndex = 0;
-      System.out.printf("%nFINAL RESULT - resetting counts%n");
     }
   }
 
@@ -286,23 +277,23 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
     }
   }
 
-  public void stop() {
-    this.running.set(false);
-  }
-
   private void close() {
     speech.close();
+    flush();
+    //stop();
+  }
+
+  private void flush() {
     if (unsent != null) {
       publisher.publish(String.join(" ", unsent));
       unsent = null;
     }
-//    stop();
+    lastIndex = 0;
   }
 
-
-  // Taken wholesale from StreamingRecognizeClient.java
-  private static final List<String> OAUTH2_SCOPES =
-      Arrays.asList("https://www.googleapis.com/auth/cloud-platform");
+  private void stop() {
+    this.running.set(false);
+  }
 
   private String convertMillisToDate(double milliSeconds) {
     long millis = (long) milliSeconds;
