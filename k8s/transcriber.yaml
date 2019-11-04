@@ -14,8 +14,11 @@ metadata:
     app: leader-election
 rules:
   - apiGroups: [""]
-    resources: ["endpoints"]
+    resources: ["configmaps"]
     verbs: ["*"]
+#  - apiGroups: ["coordination.k8s.io"]
+#    resources: ["leases"]
+#    verbs: ["*"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1beta1
@@ -47,10 +50,26 @@ spec:
     metadata:
       labels:
         app: transcriber
-        dummy: test6
+        dummy: test4
     spec:
       serviceAccountName: leader-election
       containers:
+        - name: leader-election
+          image: eu.gcr.io/jtgcp-subtitles/goelection:latest
+          imagePullPolicy: Always
+          env:
+            - name: PODNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PORT
+              value: "4040"
+          args:
+            - --lease-lock-name=electionlock
+            - --lease-lock-namespace=default
+            - --id=$(PODNAME)
+            - --port=$(PORT)
+            - --logtostderr=true
         - name: transcriber
           image: eu.gcr.io/jtgcp-subtitles/subtitling-transcribe:latest
           env:
@@ -58,25 +77,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-#          ports:
-#            - containerPort: 8080
-#          readinessProbe:
-#            exec:
-#              command:
-#                - /bin/sh
-#                - -c
-#                - curl -v --silent http://localhost:4040/ 2>&1 | grep $PODNAME
-#            initialDelaySeconds: 20
-#            periodSeconds: 3
-        - name: leader-election
-          image: gcr.io/google-containers/leader-elector:0.5
-          args:
-            - --election=election2
-            - --http=0.0.0.0:4040
-            - --ttl=2s
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 4040
+            - name: LEADERPORT
+              value: "4040"
 
 #---
 #apiVersion: policy/v1beta1
@@ -89,16 +91,3 @@ spec:
 #    matchLabels:
 #      app: transcriber
 #
-#---
-#apiVersion: v1
-#kind: Service
-#metadata:
-#  name: transcriber-service
-#spec:
-#  selector:
-#    app: transcriber
-#  ports:
-#    - protocol: TCP
-#      port: 80
-#      targetPort: 8080
-#  type: LoadBalancer

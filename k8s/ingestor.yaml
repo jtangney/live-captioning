@@ -11,7 +11,7 @@ spec:
     metadata:
       labels:
         app: ingestor
-        dummy: test6
+        dummy: test
     spec:
       containers:
         - name: ingestor

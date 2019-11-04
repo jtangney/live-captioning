@@ -9,7 +9,7 @@ import com.google.jtangney.subtitling.ingest.IngestSocket;
 public class Main {
 
   public static void main(String[] args) {
-    AudioQueue queue = new JedisAudioQueue(IngestSocket.QUEUE_NAME);
+    AudioQueue queue = new JedisAudioQueue(IngestSocket.LIVE_QUEUE, null);
     SpeechHandler handler = new SpeechHandler(queue);
     new Thread(handler).start();
   }

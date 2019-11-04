@@ -13,6 +13,7 @@ audio = pyaudio.PyAudio()
 
 
 async def stream_mic_audio(url):
+  """Streams audio from the local microphone via websockets"""
   stream = audio.open(format=pyaudio.paInt16,
                       channels=1,
                       rate=RATE,
@@ -26,6 +27,7 @@ async def stream_mic_audio(url):
 
 
 async def stream_file(url, filename='pager-article-snippet.wav'):
+  """Streams the supplied file via websockets, continuously replaying"""
   wf = wave.open(filename, 'rb')
   outstream = audio.open(format=audio.get_format_from_width(wf.getsampwidth()),
                          channels=wf.getnchannels(),
@@ -42,7 +44,7 @@ async def stream_file(url, filename='pager-article-snippet.wav'):
             await websocket.send(data)
             data = wf.readframes(CHUNK)
           print('EOF, pausing')
-          time.sleep(SLEEP)
+          time.sleep(1.5)
           wf = wave.open(filename, 'rb')
           data = wf.readframes(CHUNK)
           print('restarting playback')

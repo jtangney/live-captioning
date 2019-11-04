@@ -1,4 +1,7 @@
-gcloud container clusters create speech-cluster --scopes=gke-default,cloud-platform \
+gcloud container clusters create speech-cluster \
+--cluster-version=1.14.7-gke.10 \
+--scopes=gke-default,cloud-platform \
+--machine-type=n1-highcpu-2 \
 --num-nodes=1 --node-locations=europe-west1-b,europe-west1-d \
 --enable-ip-alias
 

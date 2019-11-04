@@ -13,7 +13,6 @@ import java.text.DateFormat;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -64,6 +63,7 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
 
   private void initSpeech() {
     try {
+      long start = System.currentTimeMillis();
       speech = SpeechClient.create();
       lastIndex = 0;
       latestTranscript = null;
@@ -91,11 +91,13 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       StreamingRecognizeRequest initial =
           StreamingRecognizeRequest.newBuilder().setStreamingConfig(streamingConfig).build();
       requestObserver.onNext(initial);
-      logger.info("Initialised streaming Speech API");
+      logger.info("Initialised streaming Speech API in "+(System.currentTimeMillis() - start));
     } catch (IOException e) {
       logger.log(Level.WARNING, "Error initialising Speech API", e);
     }
   }
+
+//  private boolean sendingRecent = false;
 
   @Override
   public void run() {
@@ -104,13 +106,18 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       while (running.get()) {
         // abort if we're not the leader (master)
         if (!LeaderChecker.isLeader()) {
+          try {
+            Thread.sleep(500);
+          }
+          catch (InterruptedException ie) {}
           continue;
         }
         // (blocking) read some audio bytes from the queue
-        byte[] bytes = Base64.getDecoder().decode(sharedQueue.take());
+        byte[] bytes = sharedQueue.take();
         // don't init speech until we have some bytes
         if (this.speech == null || speech.isShutdown()) {
           this.initSpeech();
+          //this.publishRecent();
         }
         if (!sharedQueue.isEmpty()) {
           System.out.printf("sharedQueue size = %d%n", sharedQueue.size());
@@ -124,6 +131,7 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       }
     }
     catch (Exception e) {
+      e.printStackTrace();
       throw new RuntimeException(e);
     }
   }
@@ -165,8 +173,8 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
     }
 
     if (elements.length <= wordSettleLength) {
-      //System.out.printf("Ignoring short result%n");
       flush();
+      lastIndex = 0;
       return;
     }
     if (lastIndex < (elements.length - wordSettleLength)) {
@@ -174,6 +182,19 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       publisher.publish(String.join(" ", segment));
       unsent = Arrays.copyOfRange(elements, elements.length - wordSettleLength, elements.length);
       lastIndex += segment.length;
+    }
+  }
+
+  private void publishRecent() {
+    List<byte[]> recents = sharedQueue.takeRecent();
+    if (recents != null && !recents.isEmpty()) {
+      System.out.println("We have recently sent audio! Let's use it to prime Speech");
+      for (byte[] chunk : recents) {
+        StreamingRecognizeRequest request = StreamingRecognizeRequest.newBuilder()
+            .setAudioContent(ByteString.copyFrom(chunk))
+            .build();
+        requestObserver.onNext(request);
+      }
     }
   }
 
@@ -288,7 +309,6 @@ public class SpeechHandler implements Runnable, ApiStreamObserver<StreamingRecog
       publisher.publish(String.join(" ", unsent));
       unsent = null;
     }
-    lastIndex = 0;
   }
 
   private void stop() {

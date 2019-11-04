@@ -13,12 +13,13 @@ import java.util.logging.Logger;
 public class IngestSocket extends WebSocketAdapter {
 
   private static Logger logger = Logger.getLogger(IngestSocket.class.getName());
-  public static final String QUEUE_NAME = "ingestq";
+  public static final String LIVE_QUEUE = "liveq";
+  public static final String RECENT_QUEUE = "recentq";
 
-  private Jedis sharedQueue;
+  private Jedis redis;
 
   public IngestSocket() {
-    this.sharedQueue = JedisFactory.get();
+    this.redis = JedisFactory.get();
   }
 
   /**
@@ -37,9 +38,7 @@ public class IngestSocket extends WebSocketAdapter {
   public void onWebSocketBinary(byte[] payload, int offset, int len) {
     if (isConnected()) {
       String enc = Base64.getEncoder().encodeToString(Arrays.copyOfRange(payload, offset, len));
-      sharedQueue.rpush(QUEUE_NAME, enc);
-//      ByteString byteString = ByteString.copyFrom(Arrays.copyOfRange(payload, offset, len));
-//      sharedQueue.rpush(QUEUE_NAME, byteString.toString());
+      redis.lpush(LIVE_QUEUE, enc);
     }
   }
 
