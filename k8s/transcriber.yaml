@@ -16,9 +16,6 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["*"]
-#  - apiGroups: ["coordination.k8s.io"]
-#    resources: ["leases"]
-#    verbs: ["*"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1beta1
@@ -55,7 +52,7 @@ spec:
       serviceAccountName: leader-election
       containers:
         - name: leader-election
-          image: eu.gcr.io/jtgcp-subtitles/goelection:latest
+          image: eu.gcr.io/jtgcp-subtitles/leader-elector:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
@@ -72,22 +69,13 @@ spec:
             - --logtostderr=true
         - name: transcriber
           image: eu.gcr.io/jtgcp-subtitles/subtitling-transcribe:latest
+          imagePullPolicy: Always
           env:
             - name: PODNAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: LEADERPORT
+            - name: PORT
               value: "4040"
-
-#---
-#apiVersion: policy/v1beta1
-#kind: PodDisruptionBudget
-#metadata:
-#  name: zk-pdb
-#spec:
-#  minAvailable: 1
-#  selector:
-#    matchLabels:
-#      app: transcriber
-#
+          args:
+            - --redisHost=10.73.51.12

@@ -19,7 +19,6 @@ async def stream_mic_audio(url):
                       rate=RATE,
                       input=True,
                       frames_per_buffer=CHUNK)
-
   async with websockets.connect(url) as websocket:
     while True:
       data = stream.read(CHUNK)
@@ -33,7 +32,6 @@ async def stream_file(url, filename='pager-article-snippet.wav'):
                          channels=wf.getnchannels(),
                          rate=wf.getframerate(),
                          output=True)
-
   data = wf.readframes(CHUNK)
   while True:
     try:
@@ -63,3 +61,5 @@ async def stream_file(url, filename='pager-article-snippet.wav'):
 #   stream_file('ws://0.0.0.0:8080/ingest'))
 asyncio.get_event_loop().run_until_complete(
   stream_file('ws://35.241.200.226/app/ingest'))
+# asyncio.get_event_loop().run_until_complete(
+#   stream_file('ws://localhost:8080/ingest'))
