@@ -47,7 +47,7 @@ spec:
     metadata:
       labels:
         app: transcriber
-        dummy: test2
+        dummy: test
     spec:
       serviceAccountName: leader-election
       containers:
@@ -59,8 +59,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: PORT
-              value: "4040"
           args:
             - --lease-lock-name=electionlock
             - --lease-lock-namespace=default
@@ -75,7 +73,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: PORT
-              value: "4040"
           args:
             - --redisHost=10.73.51.12
+            - --electionID=$(PODNAME)
