@@ -1,2 +1,2 @@
 PyAudio==0.2.11
-websockets==6.0
+python-socketio[client]

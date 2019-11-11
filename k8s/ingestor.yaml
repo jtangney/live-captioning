@@ -6,12 +6,12 @@ spec:
   selector:
     matchLabels:
       app: ingestor
-  replicas: 2
+  replicas: 1
   template:
     metadata:
       labels:
         app: ingestor
-        dummy: test
+        dummy: test5
     spec:
       containers:
         - name: ingestor
@@ -21,6 +21,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          args:
+            - --redisHost=10.73.51.12
+            - --host=0.0.0.0
           ports:
             - containerPort: 8080
 

@@ -47,7 +47,7 @@ spec:
     metadata:
       labels:
         app: transcriber
-        dummy: test4
+        dummy: test2
     spec:
       serviceAccountName: leader-election
       containers:

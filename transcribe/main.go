@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -20,9 +19,11 @@ import (
 
 func main() {
 	var redisHost string
+	var leaderOnly bool
 	flag.StringVar(&redisHost, "redisHost", "localhost", "Redis host IP")
+	flag.BoolVar(&leaderOnly, "leaderOnly", true, "Whether to transcribe only if leader")
 	flag.Parse()
-	log.Print(redisHost)
+	log.Print(leaderOnly)
 
 	ctx := context.Background()
 
@@ -30,10 +31,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	stream, err := client.StreamingRecognize(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// stream, err := client.StreamingRecognize(ctx)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	// go func() {
 	// 	// Pipe stdin to the API.
@@ -66,21 +67,21 @@ func main() {
 
 	go func() {
 		podName := os.Getenv("PODNAME")
-		client := redis.NewClient(&redis.Options{
+		redisClient := redis.NewClient(&redis.Options{
 			Addr:     redisHost + ":6379",
 			Password: "", // no password set
 			DB:       0,  // use default DB
 		})
 		for {
-			if !isLeader(podName, "http://localhost:4040") {
+			if leaderOnly && !isLeader(podName, "http://localhost:4040") {
 				continue
 			}
-			result, err := client.BRPop(0, "liveq").Result()
+			result, err := redisClient.BRPop(0, "liveq").Result()
 			if err != nil {
 				log.Printf("Could not read from liveq: %v", err)
 				continue
 			}
-			maybeInitSteamingRequest(stream)
+			maybeInitSteamingRequest(ctx, client)
 			decoded, _ := base64.StdEncoding.DecodeString(result[1])
 			if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
@@ -95,26 +96,26 @@ func main() {
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
-			flush()
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatalf("Cannot stream results: %v", err)
-		}
-		if err := resp.Error; err != nil {
-			log.Fatalf("Could not recognize: %v", err)
-		}
-		if resp.Results[0].Stability < 0.89 {
-			log.Print("Ignoring low stability results")
+			log.Printf("Cannot stream results: %v", err)
+			close()
 			continue
 		}
-		// printAllResults(*resp)
-		printIncremental(*resp)
+		if err := resp.Error; err != nil {
+			flush()
+			log.Printf("Could not recognize: %v", err)
+		}
+		if len(resp.Results) > 0 {
+			if resp.Results[0].Stability < 0.89 {
+				log.Printf("Ignoring low stability result (%v)", resp.Results[0].Stability)
+				continue
+			}
+			// printAllResults(*resp)
+			printIncremental(*resp)
+		}
 	}
 }
 
+var stream speechpb.Speech_StreamingRecognizeClient
 var initialised bool = false
 var wordSettleLength = 4
 var lastIndex = 0
@@ -122,27 +123,34 @@ var latestTranscript string
 var unsent []string
 var unstable string
 
-func maybeInitSteamingRequest(stream speechpb.Speech_StreamingRecognizeClient) {
-	if !initialised {
-		// Send the initial configuration message.
-		if err := stream.Send(&speechpb.StreamingRecognizeRequest{
-			StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
-				StreamingConfig: &speechpb.StreamingRecognitionConfig{
-					Config: &speechpb.RecognitionConfig{
-						Encoding:                   speechpb.RecognitionConfig_LINEAR16,
-						SampleRateHertz:            16000,
-						LanguageCode:               "en-US",
-						EnableAutomaticPunctuation: true,
-					},
-					InterimResults: true,
-				},
-			},
-		}); err != nil {
-			log.Fatal(err)
-		}
-		initialised = true
-		log.Print("Initialised Speech API")
+// func maybeInitSteamingRequest(stream speechpb.Speech_StreamingRecognizeClient) {
+func maybeInitSteamingRequest(ctx context.Context, client *speech.Client) {
+	if stream != nil {
+		return
 	}
+	var err error
+	stream, err = client.StreamingRecognize(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Send the initial configuration message.
+	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
+			StreamingConfig: &speechpb.StreamingRecognitionConfig{
+				Config: &speechpb.RecognitionConfig{
+					Encoding:                   speechpb.RecognitionConfig_LINEAR16,
+					SampleRateHertz:            16000,
+					LanguageCode:               "en-US",
+					EnableAutomaticPunctuation: true,
+				},
+				InterimResults: true,
+			},
+		},
+	}); err != nil {
+		log.Fatal(err)
+	}
+	initialised = true
+	log.Print("Initialised Speech API")
 }
 
 func isLeader(podName string, url string) bool {
@@ -192,9 +200,19 @@ func printIncremental(resp speechpb.StreamingRecognizeResponse) {
 	}
 }
 
+//func close(stream speechpb.Speech_StreamingRecognizeClient) {
+func close() {
+	initialised = false
+	flush()
+	if err := stream.CloseSend(); err != nil {
+		log.Printf("Could not close stream: %v", err)
+	}
+	stream = nil
+}
+
 func flush() {
-	log.Print("Flushing...")
 	if unsent != nil {
+		log.Print("Flushing...")
 		log.Print(strings.Join(unsent, " "))
 	}
 	if unstable != "" {

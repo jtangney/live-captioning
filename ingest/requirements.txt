@@ -1,0 +1,3 @@
+flask-socketio
+eventlet
+redis==3.3.11
