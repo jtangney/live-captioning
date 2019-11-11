@@ -17,5 +17,4 @@ target/
 venv/
 *.pyc
 
-src/**/client/
-src/**/transcribe/
+obsolete/
