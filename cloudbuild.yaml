@@ -1,0 +1,24 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/subtitling-ingest', './ingest' ]
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/leader-elector', './election' ]
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/subtitling-transcribe', './transcribe' ]
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/subtitling-editor', './ui' ]
+    waitFor: ['-']
+
+images: [
+  'gcr.io/$PROJECT_ID/subtitling-ingest',
+  'gcr.io/$PROJECT_ID/leader-elector',
+  'gcr.io/$PROJECT_ID/subtitling-transcribe'
+  'gcr.io/$PROJECT_ID/subtitling-editor'
+]
+

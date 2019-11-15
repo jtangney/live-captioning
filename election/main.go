@@ -159,7 +159,7 @@ func main() {
 			OnStoppedLeading: func() {
 				// we can do cleanup here
 				klog.Infof("%s stopped leading", id)
-				os.Exit(0)
+				// os.Exit(0)
 			},
 			OnNewLeader: func(identity string) {
 				// we're notified when new leader elected

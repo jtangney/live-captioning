@@ -10,32 +10,28 @@ parser.add_argument("--host", default="localhost")
 parser.add_argument("--port", default=8080)
 parser.add_argument("--redisHost", required=True)
 parser.add_argument("--redisQueue", default="liveq")
+parser.add_argument("--id", default="Ingest")
 args = parser.parse_args()
-print('starting ingest')
-print(args)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO()
 rdb = redis.Redis(host=args.redisHost, port=6379, db=0)
-# socketio = SocketIO(app)
-# # rdb = redis.Redis(host=args.redisHost, port=6379, db=0)
-# socketio.run(app, host=args.host, port=args.port)
 
 
 @app.route('/')
 def hello_world():
-  return 'hello world'
+  return 'hello from ' + args.id
 
 
 @socketio.on('connect')
 def connect():
-  print('Socket connected!')
+  print('%s socket connected!' % args.id)
 
 
 @socketio.on('disconnect')
 def connect():
-  print('Socket disconnected!')
+  print('%s socket disconnected!' % args.id)
 
 
 @socketio.on('message')

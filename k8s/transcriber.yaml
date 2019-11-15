@@ -63,7 +63,7 @@ spec:
             - --lease-lock-name=electionlock
             - --lease-lock-namespace=default
             - --id=$(PODNAME)
-            - --port=$(PORT)
+            - --port=4040
             - --logtostderr=true
         - name: transcriber
           image: eu.gcr.io/jtgcp-subtitles/subtitling-transcribe:latest

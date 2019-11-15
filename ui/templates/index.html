@@ -1,0 +1,61 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <title>Flask-SocketIO Test</title>
+    <script src="//code.jquery.com/jquery-1.12.4.min.js" integrity="sha256-ZosEbRLbNQzLpnKIkEdrPv7lOy9C27hHQ+Xp8a4MxAQ=" crossorigin="anonymous"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js" integrity="sha256-yr4fRk/GU1ehYJPAs8P4JlTgu0Hdsp4ZKrx8bDEDC3I=" crossorigin="anonymous"></script>
+    <script type="text/javascript" charset="utf-8">
+        $(document).ready(function() {
+            // Connect to the Socket.IO server.
+            // The connection URL has the following format, relative to the current page:
+            //     http[s]://<domain>:<port>[/<namespace>]
+            var socket = io();
+            // Event handler for new connections.
+            // The callback function is invoked when a connection with the
+            // server is established.
+            socket.on('connect', function() {
+                socket.emit('my_event', {data: 'I\'m connected!'});
+            });
+            // Event handler for server sent data.
+            // The callback function is invoked whenever the server emits data
+            // to the client. The data is then displayed in the "Received"
+            // section of the page.
+            socket.on('message', function(msg, cb) {
+                $('#log').append('<br>' + $('<div/>').text('Received: ' + msg).html());
+                if (cb)
+                    cb();
+            });
+            socket.on('pubsubmsg', function(msg, cb) {
+                //$('#log').append('<br>' + $('<div/>').text('Received pubsubmsg: ' + msg).html());
+                var elems = msg.split("|");
+                console.log(elems);
+                if (elems.length > 0) {
+                    $('#log').append($('<div/>').text(elems[0]+' ').html());
+                }
+                if (elems.length > 1) {
+                    $('#pending').text(elems[1]);
+                    if (elems.length > 2) {
+                        $('#unstable').text(elems[2]);
+                    }
+                }
+                // clear if not present
+                if (elems.length < 3) {
+                    $('#unstable').text('');
+                    if (elems.length < 2) {
+                        $('#pending').text('');
+                    }
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+<h1>Live Transcription Demo</h1>
+<p>Async mode is: <b>{{ async_mode }}</b></p>
+<h2>Received:</h2>
+<div id="log" style="width:500px"></div>
+<br>
+<div id="pending" style="color:Gray"></div>
+<div id="unstable" style="color:Silver"></div>
+</body>
+</html>

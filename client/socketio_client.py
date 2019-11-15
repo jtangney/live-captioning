@@ -63,5 +63,7 @@ async def stream_file(url, filename='pager-article-snippet.wav'):
       time.sleep(SLEEP)
 
 
-asyncio.get_event_loop().run_until_complete(stream_file('http://0.0.0.0:8080'))
-# asyncio.get_event_loop().run_until_complete(stream_file('http://35.241.200.226'))
+# asyncio.get_event_loop().run_until_complete(stream_file('http://0.0.0.0:8080',
+#     filename='/Users/jtangney/Downloads/sky-audio-samples/Weather-mod.wav'))
+asyncio.get_event_loop().run_until_complete(stream_file('http://35.241.200.226',
+      filename='/Users/jtangney/Downloads/sky-audio-samples/Weather-mod.wav'))

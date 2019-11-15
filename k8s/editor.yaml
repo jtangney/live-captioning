@@ -1,24 +1,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ingestor-deployment
+  name: editor-deployment
 spec:
   selector:
     matchLabels:
-      app: ingestor
-  replicas: 2
+      app: editor
+  replicas: 1
   template:
     metadata:
       labels:
-        app: ingestor
-        dummy: test2
+        app: editor
+        dummy: test
     spec:
       containers:
         - name: ingestor
-          image: eu.gcr.io/jtgcp-subtitles/subtitling-ingest:latest
+          image: eu.gcr.io/jtgcp-subtitles/subtitling-editor:latest
+          env:
+            - name: PODNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           args:
             - --redisHost=10.73.51.12
             - --host=0.0.0.0
+            - --id=$(PODNAME)
           ports:
             - containerPort: 8080
 
@@ -26,10 +32,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ingestor-service
+  name: editor-service
 spec:
   selector:
-    app: ingestor
+    app: editor
   ports:
     - protocol: TCP
       port: 80
