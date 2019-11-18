@@ -1,12 +1,14 @@
 gcloud container clusters create speech-cluster \
---cluster-version=1.14.7-gke.10 \
+--region=europe-west1 \
+--cluster-version=1.14.7 \
 --scopes=gke-default,cloud-platform \
 --machine-type=n1-highcpu-2 \
 --num-nodes=1 --node-locations=europe-west1-b,europe-west1-d \
 --enable-ip-alias
 
-gcloud container clusters get-credentials speech-cluster
+gcloud container clusters get-credentials speech-cluster --region=europe-west1
 
-#kubectl create deployment transcriber --image=eu.gcr.io/jtgcp-subtitles/sky-subtitling
+gcloud redis instances create redis-captions --tier=standard --region=europe-west1 --zone=europe-west1-b
+
 kubectl apply -f k8s/transcriber.yaml
 

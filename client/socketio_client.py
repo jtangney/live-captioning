@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import time
 import wave
@@ -5,12 +6,17 @@ import wave
 import pyaudio
 import socketio
 
-RATE = 16000
-CHUNK = int(RATE / 10)
-SLEEP = 0.5
+parser = argparse.ArgumentParser()
+parser.add_argument("--targetip", default="localhost:8080")
+parser.add_argument("--file", default="pager-article-snippet.wav")
+args = parser.parse_args()
 
 audio = pyaudio.PyAudio()
 sio = socketio.Client()
+
+RATE = 16000
+CHUNK = int(RATE / 10)
+SLEEP = 0.5
 
 
 @sio.event
@@ -23,8 +29,9 @@ def connect():
   print("Established connection!")
 
 
-async def stream_mic_audio(url):
+async def stream_mic_audio(target_ip):
   """Streams audio from the local microphone via socketio"""
+  url = 'http://' + target_ip
   stream = audio.open(format=pyaudio.paInt16,
                       channels=1,
                       rate=RATE,
@@ -36,7 +43,8 @@ async def stream_mic_audio(url):
     sio.emit('data', data)
 
 
-async def stream_file(url, filename='pager-article-snippet.wav'):
+async def stream_file(target_ip, filename):
+  url = 'http://' + target_ip
   """Streams the supplied file via socketio, continuously replaying"""
   wf = wave.open(filename, 'rb')
   outstream = audio.open(format=audio.get_format_from_width(wf.getsampwidth()),
@@ -63,7 +71,4 @@ async def stream_file(url, filename='pager-article-snippet.wav'):
       time.sleep(SLEEP)
 
 
-# asyncio.get_event_loop().run_until_complete(stream_file('http://0.0.0.0:8080',
-#     filename='/Users/jtangney/Downloads/sky-audio-samples/Weather-mod.wav'))
-asyncio.get_event_loop().run_until_complete(stream_file('http://35.241.200.226',
-      filename='/Users/jtangney/Downloads/sky-audio-samples/Weather-mod.wav'))
+asyncio.get_event_loop().run_until_complete(stream_file(args.targetip, args.file))
