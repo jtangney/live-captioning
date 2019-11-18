@@ -76,3 +76,7 @@ spec:
           args:
             - --redisHost=10.73.51.12
             - --electionID=$(PODNAME)
+            - --encoding=LINEAR16
+            - --sampleRate=16000
+            - --channels=1
+            - --lang=en-GB
