@@ -1,5 +1,8 @@
 # live-captioning
-Uses the Google Cloud Speech API to transcribe a live audio stream. Deploys a set of highly available services to GKE. Work in progress.
+Uses the Google Cloud [Speech-to-Text API](https://cloud.google.com/speech-to-text/) to transcribe a live audio stream. 
+App is deployed as a set of highly available services to [GKE](https://cloud.google.com/kubernetes-engine/). 
+Uses a leader-election pattern to maintain a stateful connection to the API.
+Work in progress.
 
 ## Architecture
 Not all elements of this diagram are currently implemented.
@@ -28,7 +31,7 @@ asynchronously received. The Speech API client libraries abstract away the gRPC 
 * The connection to the API is stateful; transcription results can evolve as more audio is received by the API.
 * While the Transcribe deployment is replicated across zones, only a single pod (the leader) communicates with
 the API at a given point
-  * This is achieved using a leader election pattern.
+  * This is achieved using a [leader election](https://en.wikipedia.org/wiki/Leader_election) pattern.
   * The Kubernetes [Go client](https://github.com/kubernetes/client-go/tree/kubernetes-1.14.7/tools/leaderelection)
   provides some built-in logic to do leader election
   * Simply speaking, the deployed Transcribe pods compete to acquire a lock that is managed by the Kubernete control plane. 
