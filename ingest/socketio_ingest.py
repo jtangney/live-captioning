@@ -16,7 +16,9 @@ args = parser.parse_args()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO()
-rdb = redis.Redis(host=args.redisHost, port=6379, db=0)
+rdb = redis.Redis(host=args.redisHost, port=6379, db=0,
+                  health_check_interval=2, socket_timeout=4)
+buffer = []
 
 
 @app.route('/')
@@ -41,9 +43,20 @@ def handle_message(message):
 
 @socketio.on('data')
 def handle_data(data):
-  # print('received data')
   encoded = base64.b64encode(data)
-  rdb.lpush(args.redisQueue, encoded)
+  try:
+    # send buffered audio first if it exists
+    if len(buffer) > 0:
+      for elem in buffer:
+        rdb.lpush(args.redisQueue, elem)
+      buffer.clear()
+      print('Sent buffered audio!')
+    val = rdb.lpush(args.redisQueue, encoded)
+    if val > 1:
+      print(val)
+  except redis.exceptions.RedisError as err:
+    print('Error pushing into Redis queue: %s' % err)
+    buffer.append(encoded)
 
 
 if __name__ == '__main__':
