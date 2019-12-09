@@ -44,14 +44,20 @@ func main() {
 	var kubeconfig string
 	var leaseLockName string
 	var leaseLockNamespace string
+	var leaseDuration int
+	var renewDeadline int
+	var retryPeriod int
 	var id string
 	var port string
 	var leaderID string
 
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
 	flag.StringVar(&id, "id", uuid.New().String(), "the holder identity name")
-	flag.StringVar(&leaseLockName, "lease-lock-name", "", "the lease lock resource name")
-	flag.StringVar(&leaseLockNamespace, "lease-lock-namespace", "", "the lease lock resource namespace")
+	flag.StringVar(&leaseLockName, "lockName", "", "the lock resource name")
+	flag.StringVar(&leaseLockNamespace, "lockNamespace", "", "the lock resource namespace")
+	flag.IntVar(&leaseDuration, "leaseDuration", 4, "time (seconds) that non-leader candidates will wait to force acquire leadership")
+	flag.IntVar(&renewDeadline, "renewDeadline", 2, "time (seconds) that the acting leader will retry refreshing leadership before giving up")
+	flag.IntVar(&retryPeriod, "retryPeriod", 1, "time (seconds) LeaderElector candidates should wait between tries of actions")
 	flag.StringVar(&port, "port", "", "If non-empty, stand up a simple webserver that reports the leader state")
 	flag.Parse()
 
@@ -119,17 +125,17 @@ func main() {
 	// 	},
 	// }
 
-	webHandler := func(res http.ResponseWriter, req *http.Request) {
-		data, err := json.Marshal(leaderID)
-		if err != nil {
-			res.WriteHeader(http.StatusInternalServerError)
-			res.Write([]byte(err.Error()))
-			return
-		}
-		res.WriteHeader(http.StatusOK)
-		res.Write(data)
-	}
 	if len(port) > 0 {
+		webHandler := func(res http.ResponseWriter, req *http.Request) {
+			data, err := json.Marshal(leaderID)
+			if err != nil {
+				res.WriteHeader(http.StatusInternalServerError)
+				res.Write([]byte(err.Error()))
+				return
+			}
+			res.WriteHeader(http.StatusOK)
+			res.Write(data)
+		}
 		klog.Infof("Registering web handler at %s", port)
 		http.HandleFunc("/", webHandler)
 		go http.ListenAndServe(":"+port, nil)
@@ -146,9 +152,9 @@ func main() {
 		// get elected before your background loop finished, violating
 		// the stated goal of the lease.
 		ReleaseOnCancel: true,
-		LeaseDuration:   4 * time.Second,
-		RenewDeadline:   2 * time.Second,
-		RetryPeriod:     1 * time.Second,
+		LeaseDuration:   time.Duration(leaseDuration) * time.Second,
+		RenewDeadline:   time.Duration(renewDeadline) * time.Second,
+		RetryPeriod:     time.Duration(retryPeriod) * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				// we're notified when we start - this is where you would

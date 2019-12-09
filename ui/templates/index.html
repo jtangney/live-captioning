@@ -25,12 +25,15 @@
                 if (cb)
                     cb();
             });
+            var re = new RegExp('^\\[.+\\]');
             socket.on('pubsubmsg', function(msg, cb) {
-                //$('#log').append('<br>' + $('<div/>').text('Received pubsubmsg: ' + msg).html());
                 var elems = msg.split("|");
                 console.log(elems);
                 if (elems.length > 0) {
-                    $('#log').append($('<div/>').text(elems[0]+' ').html());
+                    $('#log').append(elems[0]+' ');
+                    if (re.test(elems[0])) {
+                        $('#log').append('<br>');
+                    }
                 }
                 if (elems.length > 1) {
                     $('#pending').text(elems[1]);

@@ -6,12 +6,12 @@ spec:
   selector:
     matchLabels:
       app: editor
-  replicas: 1
+  replicas: 2
   template:
     metadata:
       labels:
         app: editor
-        dummy: test
+        dummy: test2
     spec:
       containers:
         - name: ingestor
@@ -22,7 +22,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
           args:
-            - --redisHost=10.73.51.12
+            - --redisHost=10.226.1.220
             - --host=0.0.0.0
             - --id=$(PODNAME)
           ports:
@@ -41,3 +41,4 @@ spec:
       port: 80
       targetPort: 8080
   type: LoadBalancer
+  sessionAffinity: ClientIP

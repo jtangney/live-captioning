@@ -45,7 +45,7 @@ async def stream_mic_audio(target_ip):
 
 async def stream_file(target_ip, filename):
   url = 'http://' + target_ip
-  """Streams the supplied file via socketio, continuously replaying"""
+  """Streams the supplied WAV file via socketio, continuously replaying"""
   wf = wave.open(filename, 'rb')
   outstream = audio.open(format=audio.get_format_from_width(wf.getsampwidth()),
                          channels=wf.getnchannels(),
@@ -67,7 +67,7 @@ async def stream_file(target_ip, filename):
           data = wf.readframes(CHUNK)
           print('restarting playback')
     except socketio.exceptions.ConnectionError as err:
-      print('Connection error! Retrying...')
+      print('Connection error! Retrying...: %s' % err)
       time.sleep(SLEEP)
 
 
