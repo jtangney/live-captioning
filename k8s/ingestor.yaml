@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: ingestor
-          image: eu.gcr.io/jtgcp-subtitles/subtitling-ingest:latest
+          image: eu.gcr.io/jtgcp-subtitles/ingestor:latest
           args:
             - --redisHost=10.226.1.220
             - --host=0.0.0.0

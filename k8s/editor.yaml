@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: ingestor
-          image: eu.gcr.io/jtgcp-subtitles/subtitling-editor:latest
+          image: eu.gcr.io/jtgcp-subtitles/editor:latest
           env:
             - name: PODNAME
               valueFrom:

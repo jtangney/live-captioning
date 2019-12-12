@@ -1,24 +1,24 @@
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/subtitling-ingest', './ingest' ]
+    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/ingestor', './ingest' ]
     waitFor: ['-']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/leader-elector', './election' ]
+    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/leader-election', './election' ]
     waitFor: ['-']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/subtitling-transcribe', './transcribe' ]
+    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/transcriber', './transcribe' ]
     waitFor: ['-']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/subtitling-editor', './ui' ]
+    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/editor', './editor' ]
     waitFor: ['-']
 
 images: [
-  'eu.gcr.io/$PROJECT_ID/subtitling-ingest',
-  'eu.gcr.io/$PROJECT_ID/leader-elector',
-  'eu.gcr.io/$PROJECT_ID/subtitling-transcribe',
-  'eu.gcr.io/$PROJECT_ID/subtitling-editor'
+  'eu.gcr.io/$PROJECT_ID/ingestor',
+  'eu.gcr.io/$PROJECT_ID/leader-election',
+  'eu.gcr.io/$PROJECT_ID/transcriber',
+  'eu.gcr.io/$PROJECT_ID/editor'
 ]
 

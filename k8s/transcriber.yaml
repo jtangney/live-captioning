@@ -52,7 +52,7 @@ spec:
       serviceAccountName: leader-election
       containers:
         - name: leader-election
-          image: eu.gcr.io/jtgcp-subtitles/leader-elector:latest
+          image: eu.gcr.io/jtgcp-subtitles/leader-election:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
@@ -66,7 +66,7 @@ spec:
             - --port=4040
             - --logtostderr=true
         - name: transcriber
-          image: eu.gcr.io/jtgcp-subtitles/subtitling-transcribe:latest
+          image: eu.gcr.io/jtgcp-subtitles/transcriber:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
