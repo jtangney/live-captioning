@@ -1,11 +1,11 @@
-import eventlet
-eventlet.monkey_patch()
-
 import argparse
 
-import redis
+import eventlet
+
+eventlet.monkey_patch()
 from flask import Flask, render_template
 from flask_socketio import SocketIO
+import redis
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--host", default="localhost")

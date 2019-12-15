@@ -20,13 +20,13 @@ SLEEP = 0.5
 
 
 @sio.event
-def disconnect():
-  print("Disconnected!")
+def connect():
+  print("Established socket connection!")
 
 
 @sio.event
-def connect():
-  print("Established connection!")
+def disconnect():
+  print("Disconnected!")
 
 
 async def stream_mic_audio(target_ip):
@@ -71,4 +71,5 @@ async def stream_file(target_ip, filename):
       time.sleep(SLEEP)
 
 
-asyncio.get_event_loop().run_until_complete(stream_file(args.targetip, args.file))
+asyncio.get_event_loop().run_until_complete(stream_file(
+  args.targetip, args.file))
