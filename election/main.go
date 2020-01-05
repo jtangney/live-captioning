@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,21 +16,12 @@ import (
 	// clientset "k8s.io/client-go/kubernetes"
 	clientset "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog"
 )
 
-func buildConfig(kubeconfig string) (*rest.Config, error) {
-	if kubeconfig != "" {
-		cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return nil, err
-		}
-		return cfg, nil
-	}
-
+func buildConfig() (*rest.Config, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, err
@@ -41,31 +32,32 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 func main() {
 	klog.InitFlags(nil)
 
-	var kubeconfig string
-	var leaseLockName string
-	var leaseLockNamespace string
+	var lockName string
+	var lockNamespace string
 	var leaseDuration int
 	var renewDeadline int
 	var retryPeriod int
 	var id string
-	var port string
+	var port int
 	var leaderID string
 
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
-	flag.StringVar(&id, "id", uuid.New().String(), "the holder identity name")
-	flag.StringVar(&leaseLockName, "lockName", "", "the lock resource name")
-	flag.StringVar(&leaseLockNamespace, "lockNamespace", "", "the lock resource namespace")
+	flag.StringVar(&id, "id", uuid.New().String(), "This pod's participant ID for leader election")
+	flag.IntVar(&port, "electionPort", 4040, "Required. Send HTTP leader election notifications to this port")
+	flag.StringVar(&lockName, "lockName", "", "the lock resource name")
+	flag.StringVar(&lockNamespace, "lockNamespace", "default", "the lock resource namespace")
 	flag.IntVar(&leaseDuration, "leaseDuration", 4, "time (seconds) that non-leader candidates will wait to force acquire leadership")
 	flag.IntVar(&renewDeadline, "renewDeadline", 2, "time (seconds) that the acting leader will retry refreshing leadership before giving up")
 	flag.IntVar(&retryPeriod, "retryPeriod", 1, "time (seconds) LeaderElector candidates should wait between tries of actions")
-	flag.StringVar(&port, "port", "", "If non-empty, stand up a simple webserver that reports the leader state")
 	flag.Parse()
 
-	if leaseLockName == "" {
-		klog.Fatal("unable to get lease lock resource name (missing lease-lock-name flag).")
+	if port <= 0 {
+		klog.Fatal("Missing --electionPort flag")
 	}
-	if leaseLockNamespace == "" {
-		klog.Fatal("unable to get lease lock resource namespace (missing lease-lock-namespace flag).")
+	if lockName == "" {
+		klog.Fatal("Missing --lockName flag.")
+	}
+	if lockNamespace == "" {
+		klog.Fatal("Missing --lockNamespace flag.")
 	}
 
 	// leader election uses the Kubernetes API by writing to a
@@ -73,18 +65,11 @@ func main() {
 	// a ConfigMap, or an Endpoints (deprecated) object.
 	// Conflicting writes are detected and each client handles those actions
 	// independently.
-	config, err := buildConfig(kubeconfig)
+	config, err := buildConfig()
 	if err != nil {
 		klog.Fatal(err)
 	}
 	client := clientset.NewForConfigOrDie(config)
-
-	// run := func(ctx context.Context) {
-	// 	// complete your controller loop here
-	// 	klog.Info("Controller loop...")
-
-	// 	select {}
-	// }
 
 	// use a Go context so we can tell the leaderelection code when we
 	// want to step down
@@ -106,8 +91,8 @@ func main() {
 	// and fewer objects in the cluster watch "all Leases".
 	lock := &resourcelock.ConfigMapLock{
 		ConfigMapMeta: metav1.ObjectMeta{
-			Name:      leaseLockName,
-			Namespace: leaseLockNamespace,
+			Name:      lockName,
+			Namespace: lockNamespace,
 		},
 		Client: client,
 		LockConfig: resourcelock.ResourceLockConfig{
@@ -125,23 +110,12 @@ func main() {
 	// 	},
 	// }
 
-	if len(port) > 0 {
-		webHandler := func(res http.ResponseWriter, req *http.Request) {
-			data, err := json.Marshal(leaderID)
-			if err != nil {
-				res.WriteHeader(http.StatusInternalServerError)
-				res.Write([]byte(err.Error()))
-				return
-			}
-			res.WriteHeader(http.StatusOK)
-			res.Write(data)
-		}
-		klog.Infof("Registering web handler at %s", port)
-		http.HandleFunc("/", webHandler)
-		go http.ListenAndServe(":"+port, nil)
-	}
+	klog.Infof("Commencing leader election for candidate %s", id)
+	listenerRootURL := fmt.Sprintf("http://localhost:%d", port)
+	startURL := fmt.Sprintf("%s/start", listenerRootURL)
+	stopURL := fmt.Sprintf("%s/stop", listenerRootURL)
+	klog.Infof("Will notify listener at %s of leader changes", listenerRootURL)
 
-	klog.Infof("commencing leader election for %s", id)
 	// start the leader election code loop
 	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
 		Lock: lock,
@@ -157,24 +131,27 @@ func main() {
 		RetryPeriod:     time.Duration(retryPeriod) * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				// we're notified when we start - this is where you would
-				// usually put your code
-				klog.Infof("%s started leading", id)
-				// run(ctx)
+				// this pod now the leader! Notify listener
+				klog.Infof("Notifying %s started leading", id)
+				resp, err := http.Get(startURL)
+				defer resp.Body.Close()
+				if err != nil {
+					klog.Errorf("Failed to notify leader of start: %v", err)
+				}
 			},
 			OnStoppedLeading: func() {
-				// we can do cleanup here
-				klog.Infof("%s stopped leading", id)
-				// os.Exit(0)
+				// this pod stopped leading! Notify listener
+				klog.Infof("Notifying %s stopped leading", id)
+				resp, err := http.Get(stopURL)
+				defer resp.Body.Close()
+				if err != nil {
+					klog.Errorf("Failed to notify leader of stop: %v", err)
+				}
 			},
 			OnNewLeader: func(identity string) {
-				// we're notified when new leader elected
+				// the leader has changed
 				leaderID = identity
-				if identity == id {
-					// I just got the lock
-					return
-				}
-				klog.Infof("%s elected new leader", leaderID)
+				klog.Infof("%s elected as new leader", identity)
 			},
 		},
 	})
