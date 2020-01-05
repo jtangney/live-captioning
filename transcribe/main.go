@@ -1,14 +1,11 @@
 package main
 
-// [START speech_transcribe_streaming_mic]
 import (
 	"context"
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"io/ioutil"
-
-	// "log"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,12 +13,13 @@ import (
 	speech "cloud.google.com/go/speech/apiv1p1beta1"
 	redis "github.com/go-redis/redis/v7"
 	speechpb "google.golang.org/genproto/googleapis/cloud/speech/v1p1beta1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/klog"
 )
 
 const wordSettleLength int = 4
 
-var stream speechpb.Speech_StreamingRecognizeClient
 var redisClient *redis.Client
 var lastIndex = 0
 var latestTranscript string
@@ -31,32 +29,23 @@ var unstable string
 func main() {
 	klog.InitFlags(nil)
 
-	var isNewStream bool
+	// var isNewStream bool
 	var redisHost string
-	var electionID string
 	var electionPort int
-	var leaderOnly bool
 	var encoding string
 	var sampleRate int
 	var channels int
 	var lang string
+	flag.IntVar(&electionPort, "electionPort", 4040,
+		"Listen at this port for leader election updates. Set to zero to disable leader election")
 	flag.StringVar(&redisHost, "redisHost", "localhost", "Redis host IP")
-	flag.StringVar(&electionID, "electionID", "", "ID for this candidate in leader election")
-	flag.IntVar(&electionPort, "electionPort", 4040, "Local port to check leader ID")
-	flag.BoolVar(&leaderOnly, "leaderOnly", true, "Whether to transcribe only if leader")
 	flag.StringVar(&encoding, "encoding", "LINEAR16", "Audio endcoding for input file")
 	flag.IntVar(&sampleRate, "sampleRate", 16000, "Sample rate (Hz)")
 	flag.IntVar(&channels, "channels", 1, "Number of audio channels")
 	flag.StringVar(&lang, "lang", "en-US", "the transcription language code")
 	flag.Parse()
-	if !leaderOnly {
-		klog.Info("Not doing leader election")
-	}
-	if leaderOnly && electionID == "" {
-		klog.Fatalf("Must specify ID if doing leader election")
-	}
 
-	leaderURL := fmt.Sprintf("http://localhost:%d", electionPort)
+	// leaderURL := fmt.Sprintf("http://localhost:%d", electionPort)
 	redisClient = redis.NewClient(&redis.Options{
 		Addr:        redisHost + ":6379",
 		Password:    "", // no password set
@@ -65,8 +54,7 @@ func main() {
 		ReadTimeout: 4 * time.Second,
 	})
 
-	ctx := context.Background()
-	client, err := speech.NewClient(ctx)
+	speechClient, err := speech.NewClient(context.Background())
 	if err != nil {
 		klog.Fatal(err)
 	}
@@ -82,88 +70,142 @@ func main() {
 		InterimResults: true,
 	}
 
-	receive := func() {
-		// if we don't receive anything from Speech for some period, write any pending transcriptions
-		duration := 2000 * time.Millisecond
-		timer := time.NewTimer(duration)
-		go func() {
-			<-timer.C
-			flush()
-		}()
-		// consume streaming responses from Speech API
-		for {
-			if stream == nil {
-				return
-			}
-			resp, err := stream.Recv()
-			if err != nil {
-				klog.Errorf("Cannot stream results: %v", err)
-				flushAndClose()
-				return
-			}
-			if err := resp.Error; err != nil {
-				// timeout - expected
-				if err.Code == 11 {
-					klog.Info("Timeout from API; closing")
-					close()
-					return
+	// if a port is defined, listed there for callbacks from leader election
+	if electionPort > 0 {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Minute))
+		webHandler := func(res http.ResponseWriter, req *http.Request) {
+			if strings.Contains(req.URL.Path, "stop") {
+				if ctx.Err() == nil {
+					klog.Infof("I stopped being the leader!")
+					cancel()
+					// started = false
 				}
-				klog.Errorf("Could not recognize: %v", err)
-				flushAndClose()
-				return
 			}
-			timer.Reset(duration)
-			// output the results
-			if len(resp.Results) > 0 {
-				if resp.Results[0].Stability < 0.75 {
-					klog.Infof("Ignoring low stability result (%v): %s", resp.Results[0].Stability,
-						resp.Results[0].Alternatives[0].Transcript)
-					continue
+			if strings.Contains(req.URL.Path, "start") {
+				if ctx.Err() != nil {
+					ctx, cancel = context.WithCancel(context.Background())
+					klog.Infof("I became the leader!")
+					klog.Infof("Starting goroutine to send audio")
+					// go sendAudio(ctx, client, nil, streamingConfig)
+					go sendAudio(ctx, speechClient, streamingConfig)
+					// started = true
 				}
-				handleIncremental(*resp)
 			}
+			res.WriteHeader(http.StatusOK)
 		}
+		addr := fmt.Sprintf(":%d", electionPort)
+		klog.Infof("Registering leader election listener at port %s", addr)
+		http.HandleFunc("/", webHandler)
+		http.ListenAndServe(addr, nil)
+	} else {
+		klog.Info("Not doing leader election")
+		sendAudio(context.Background(), speechClient, streamingConfig)
 	}
+}
 
+func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb.StreamingRecognitionConfig) {
 	// main loop that consumes the audio data and sends to Speech API
+	var stream speechpb.Speech_StreamingRecognizeClient
+	done := make(chan bool)
 	for {
-		// if we're not the leader, abort
-		if leaderOnly && !isLeader(electionID, leaderURL) {
-			continue
+		select {
+		case <-ctx.Done():
+			klog.Infof("Context cancelled, exiting sender loop")
+			return
+		case _, ok := <-done:
+			if !ok && stream != nil {
+				klog.Info("done channel closed, resetting stream")
+				stream = nil
+				done = make(chan bool)
+				continue
+			}
+		default:
+			// process audio
 		}
-		// blocking pop audio data off the queue
-		result, err := redisClient.BRPop(0, "liveq").Result()
+		// blocking pop audio data off the queue.
+		// Timeout occasionally for hygiene.
+		result, err := redisClient.BRPop(5*time.Second, "liveq").Result()
 		if err != nil {
+			if err == redis.Nil {
+				continue
+			}
 			klog.Errorf("Could not read from Redis liveq: %v", err)
-			flushAndClose()
+			flush()
 			continue
 		}
 		// establish bi-directional connection to Speech API if necessary.
 		// If so, start a go routine to listen for responses
-		isNewStream = maybeInitSteamingRequest(ctx, client, streamingConfig)
-		if isNewStream {
+		if stream == nil {
+			stream = initStreamingRequest(ctx, speechClient, config)
 			emit("[NEW STREAM]")
-			go receive()
+			go receive(stream, done)
 		}
 		// send data, transcription responses received asynchronously
 		decoded, _ := base64.StdEncoding.DecodeString(result[1])
-		if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+		sendErr := stream.Send(&speechpb.StreamingRecognizeRequest{
 			StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
 				AudioContent: decoded,
 			},
-		}); err != nil {
-			klog.Errorf("Could not send audio: %v", err)
+		})
+		if sendErr != nil {
+			// expected - if stream has been closed (e.g. timeout)
+			if sendErr == io.EOF {
+				continue
+			}
+			klog.Errorf("Could not send audio: %v", sendErr)
 		}
 	}
 }
 
-// func maybeInitSteamingRequest(stream speechpb.Speech_StreamingRecognizeClient) {
-func maybeInitSteamingRequest(ctx context.Context, client *speech.Client, config speechpb.StreamingRecognitionConfig) bool {
-	if stream != nil {
-		return false
+// func receive(ctx context.Context, stream speechpb.Speech_StreamingRecognizeClient) {
+func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
+	// tidy up when function returns
+	defer flush()
+	defer close(done)
+
+	// if no results received from Speech for some period, write any pending transcriptions
+	duration := 2000 * time.Millisecond
+	timer := time.NewTimer(duration)
+	go func() {
+		<-timer.C
+		flush()
+	}()
+	// consume streaming responses from Speech API
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			// Context cancelled - expected, e.g. stopped being leader
+			if status.Code(err) == codes.Canceled {
+				return
+			}
+			klog.Errorf("Cannot stream results: %v", err)
+			return
+		}
+		if err := resp.Error; err != nil {
+			// timeout - expected, when no audio sent for a time
+			if status.FromProto(err).Code() == codes.OutOfRange {
+				klog.Info("Timeout from API; closing connection")
+				return
+			}
+			klog.Errorf("Could not recognize: %v", err)
+			return
+		}
+		
+		// ok, we have a valid response from API.
+		timer.Reset(duration)
+		if len(resp.Results) > 0 {
+			if resp.Results[0].Stability < 0.75 {
+				klog.Infof("Ignoring low stability result (%v): %s", resp.Results[0].Stability,
+					resp.Results[0].Alternatives[0].Transcript)
+				continue
+			}
+			handleIncremental(*resp)
+		}
 	}
-	var err error
-	stream, err = client.StreamingRecognize(ctx)
+}
+
+func initStreamingRequest(ctx context.Context, client *speech.Client, config speechpb.StreamingRecognitionConfig) speechpb.Speech_StreamingRecognizeClient {
+	stream, err := client.StreamingRecognize(ctx)
 	if err != nil {
 		klog.Fatal(err)
 	}
@@ -174,28 +216,10 @@ func maybeInitSteamingRequest(ctx context.Context, client *speech.Client, config
 		},
 	}); err != nil {
 		klog.Errorf("Error sending initial config message: %v", err)
-		return false
+		return nil
 	}
 	klog.Info("Initialised new connection to Speech API")
-	return true
-}
-
-// Returns true if this pod is the Leader.
-// Communicates with a leader election sidecar container that exposes the
-// current leader ID at the url
-func isLeader(podName string, url string) bool {
-	resp, err := http.Get(url)
-	if err != nil {
-		klog.Warningf("Could not get leader details: %v", err)
-		return false
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		klog.Warningf("Failed to read leader response: %v", err)
-		return false
-	}
-	return strings.Contains(string(body), podName)
+	return stream
 }
 
 // Handles transcription results.
@@ -214,7 +238,7 @@ func handleIncremental(resp speechpb.StreamingRecognizeResponse) {
 	length := len(elements)
 
 	// API will not further update this transcription; output it
-	if result.IsFinal {
+	if result.GetIsFinal() {
 		klog.Info("Final result! Resetting")
 		final := elements[lastIndex:]
 		emit(strings.Join(final, " "))
@@ -224,7 +248,6 @@ func handleIncremental(resp speechpb.StreamingRecognizeResponse) {
 
 	// new transcription segment. This can happen mid stream
 	if length < wordSettleLength {
-		// flush()
 		lastIndex = 0
 		pending = elements
 	} else if lastIndex < length-wordSettleLength {
@@ -253,21 +276,6 @@ func emit(msg string) {
 	}
 }
 
-func flushAndClose() {
-	flush()
-	close()
-}
-
-func close() {
-	if stream != nil {
-		if err := stream.CloseSend(); err != nil {
-			klog.Warningf("Could not close stream: %v", err)
-		}
-		stream = nil
-	}
-	reset()
-}
-
 func flush() {
 	msg := ""
 	if pending != nil {
@@ -289,6 +297,7 @@ func reset() {
 	unstable = ""
 }
 
+// debug
 func printAllResults(resp speechpb.StreamingRecognizeResponse) {
 	for _, result := range resp.Results {
 		fmt.Printf("Result: %+v\n", result)
