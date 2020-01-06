@@ -43,14 +43,18 @@ the API at a given point
 
 
 ## Deploy & test the app
-#### Setup, create infrastructure
 Rather than working in Cloud Shell, these instructions assume you are working on your local machine.
 This is because there are some hassles to get audio pacakges to work with Cloud Shell. You still create
 infrastructure in GCP, but execute the commands to do so locally.
-* Create a new GCP Project. You'll need to give it a unique name
-  * ```gcloud projects create %your_project_name```
-* Once the above is complete, initialise your local config to use the new project. Step through the process.
-  * ```gcloud init```
+These instructions are for Mac. You'll need to adapt as appropriate (e.g. the sed command)
+
+#### Setup, create infrastructure
+* Create a new GCP Project, and set it as the default. You'll need to give it a unique name. Supply your Organization ID if you have one.
+  * ```gcloud projects create %your-project-id --set-as-default [--organization=%your-org-id]```
+* Export the Project ID as a shell variable
+  * ```export PROJECT_ID=$(gcloud config get-value project)```
+* Enable billing; this is required. 
+  * ```gcloud beta billing projects link $PROJECT_ID --billing-account=%your-billing-account```
 * Enable the relevant APIs. This can take a few mins.
   * ``gcloud services enable speech.googleapis.com container.googleapis.com redis.googleapis.com cloudbuild.googleapis.com``
 * Create a GKE cluster. Changes the zones to your preference. This can take a few minutes
@@ -70,21 +74,24 @@ infrastructure in GCP, but execute the commands to do so locally.
 * Build the Docker containers. They will be exported to your project's container registry
   * ```gcloud builds submit --config cloudbuild.yaml```
 * Edit the yaml files to set your project ID
-  * ```sed -i "s/mynewproject/$DEVSHELL_PROJECT_ID/" k8s/*.yaml```
+  * ```sed -i '' "s/mynewproject/$PROJECT_ID/" k8s/*.yaml```
 * Edit the yaml files to set the IP address of the Cloud Memorystore instance
-  * ```sed -i "s/redisHost=.*/redisHost=$REDIS_HOST/" k8s/*.yaml```
+  * ```sed -i '' "s/redisHost=.*/redisHost=$REDIS_HOST/" k8s/*.yaml```
 * Create the Deployments and Services in the cluster
   * ```kubectl apply -f k8s/ingestor.yaml,k8s/transcriber.yaml,k8s/editor.yaml```
-* Verify that the 3 deployments have been created. 
+* Verify that the 3 Deployments (ingestor, transciber, editor) have been created. 
   * ```kubectl get deployments```
+* Verify that 2 Services (ingestor, editor) have been created. 
+  * ```kubectl get services```
+
   
 #### Test
 * Get the external IP of the Ingest service
   * ```export INGEST_IP=`kubectl get services ingestor-service -o yaml | sed -n "s/- ip: //p"` ```
-* Verify that the Ingest service is up and running
+* Verify that the Ingest service is up and running. You should see a 'hello' message
   * ```curl $INGEST_IP; echo```
 * Get the external IP of the Editor service
-  * ```kubectl get services editor-service -o yaml```
+  * ```kubectl get services editor-service -o yaml | sed -n "s/- ip: //p"```
 * Open a browser window to the IP address above. Transcriptions will be written to this web page.
 * The test client is a Python script that uses [PyAudio](http://people.csail.mit.edu/hubert/pyaudio/).
  PyAudio requires to install some system audio package. The command below assumes you are on a Mac, and use Homebrew.
