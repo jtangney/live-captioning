@@ -15,10 +15,11 @@ spec:
     spec:
       containers:
         - name: ingestor
-          image: eu.gcr.io/jtgcp-subtitles/ingestor:latest
+          image: eu.gcr.io/live-captioning-test2/ingestor:latest
           args:
-            - --redisHost=10.226.1.220
+            - --redisHost=10.224.187.124
             - --host=0.0.0.0
+            - --port=8080
           ports:
             - containerPort: 8080
 

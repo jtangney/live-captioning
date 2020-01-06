@@ -15,14 +15,14 @@ spec:
     spec:
       containers:
         - name: ingestor
-          image: eu.gcr.io/jtgcp-subtitles/editor:latest
+          image: eu.gcr.io/live-captioning-test2/editor:latest
           env:
             - name: PODNAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
           args:
-            - --redisHost=10.226.1.220
+            - --redisHost=10.224.187.124
             - --host=0.0.0.0
             - --id=$(PODNAME)
           ports:

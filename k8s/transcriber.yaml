@@ -51,22 +51,8 @@ spec:
     spec:
       serviceAccountName: leader-election
       containers:
-        - name: leader-election
-          image: eu.gcr.io/jtgcp-subtitles/leader-election:latest
-          imagePullPolicy: Always
-          env:
-            - name: PODNAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-          args:
-            - --lockName=electionlock
-            - --lockNamespace=default
-            - --id=$(PODNAME)
-            - --port=4040
-            - --logtostderr=true
         - name: transcriber
-          image: eu.gcr.io/jtgcp-subtitles/transcriber:latest
+          image: eu.gcr.io/live-captioning-test2/transcriber:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
@@ -74,10 +60,22 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
           args:
-            - --redisHost=10.226.1.220
-            - --electionID=$(PODNAME)
+            - --redisHost=10.224.187.124
             - --encoding=LINEAR16
             - --sampleRate=16000
             - --channels=1
+#            - --electionPort=0
             - --lang=en-US
-#            - --leaderOnly=false
+        - name: leader-election
+          image: eu.gcr.io/live-captioning-test2/leader-election:latest
+          imagePullPolicy: Always
+          env:
+            - name: PODNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          args:
+            - --lockName=transcriber-lock
+            - --lockNamespace=default
+            - --id=$(PODNAME)
+            - --logtostderr=true
