@@ -11,14 +11,25 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	// clientset "k8s.io/client-go/kubernetes"
-	clientset "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog"
+
+	// clientset "k8s.io/client-go/kubernetes"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes/typed/core/v1"
+)
+
+var (
+	id            = flag.String("id", uuid.New().String(), "This pod's participant ID for leader election")
+	port          = flag.Int("electionPort", 4040, "Required. Send HTTP leader election notifications to this port")
+	lockName      = flag.String("lockName", "", "the lock resource name")
+	lockNamespace = flag.String("lockNamespace", "default", "the lock resource namespace")
+	leaseDuration = flag.Duration("leaseDuration", 4, "time (seconds) that non-leader candidates will wait to force acquire leadership")
+	renewDeadline = flag.Duration("renewDeadline", 2, "time (seconds) that the acting leader will retry refreshing leadership before giving up")
+	retryPeriod   = flag.Duration("retryPeriod", 1, "time (seconds) LeaderElector candidates should wait between tries of actions")
+	leaderID      string
 )
 
 func buildConfig() (*rest.Config, error) {
@@ -31,32 +42,15 @@ func buildConfig() (*rest.Config, error) {
 
 func main() {
 	klog.InitFlags(nil)
-
-	var lockName string
-	var lockNamespace string
-	var leaseDuration int
-	var renewDeadline int
-	var retryPeriod int
-	var id string
-	var port int
-	var leaderID string
-
-	flag.StringVar(&id, "id", uuid.New().String(), "This pod's participant ID for leader election")
-	flag.IntVar(&port, "electionPort", 4040, "Required. Send HTTP leader election notifications to this port")
-	flag.StringVar(&lockName, "lockName", "", "the lock resource name")
-	flag.StringVar(&lockNamespace, "lockNamespace", "default", "the lock resource namespace")
-	flag.IntVar(&leaseDuration, "leaseDuration", 4, "time (seconds) that non-leader candidates will wait to force acquire leadership")
-	flag.IntVar(&renewDeadline, "renewDeadline", 2, "time (seconds) that the acting leader will retry refreshing leadership before giving up")
-	flag.IntVar(&retryPeriod, "retryPeriod", 1, "time (seconds) LeaderElector candidates should wait between tries of actions")
 	flag.Parse()
 
-	if port <= 0 {
+	if *port <= 0 {
 		klog.Fatal("Missing --electionPort flag")
 	}
-	if lockName == "" {
+	if *lockName == "" {
 		klog.Fatal("Missing --lockName flag.")
 	}
-	if lockNamespace == "" {
+	if *lockNamespace == "" {
 		klog.Fatal("Missing --lockNamespace flag.")
 	}
 
@@ -91,12 +85,12 @@ func main() {
 	// and fewer objects in the cluster watch "all Leases".
 	lock := &resourcelock.ConfigMapLock{
 		ConfigMapMeta: metav1.ObjectMeta{
-			Name:      lockName,
-			Namespace: lockNamespace,
+			Name:      *lockName,
+			Namespace: *lockNamespace,
 		},
 		Client: client,
 		LockConfig: resourcelock.ResourceLockConfig{
-			Identity: id,
+			Identity: *id,
 		},
 	}
 	// lock := &resourcelock.LeaseLock{
@@ -110,8 +104,8 @@ func main() {
 	// 	},
 	// }
 
-	klog.Infof("Commencing leader election for candidate %s", id)
-	listenerRootURL := fmt.Sprintf("http://localhost:%d", port)
+	klog.Infof("Commencing leader election for candidate %s", *id)
+	listenerRootURL := fmt.Sprintf("http://localhost:%d", *port)
 	startURL := fmt.Sprintf("%s/start", listenerRootURL)
 	stopURL := fmt.Sprintf("%s/stop", listenerRootURL)
 	klog.Infof("Will notify listener at %s of leader changes", listenerRootURL)
@@ -126,27 +120,27 @@ func main() {
 		// get elected before your background loop finished, violating
 		// the stated goal of the lease.
 		ReleaseOnCancel: true,
-		LeaseDuration:   time.Duration(leaseDuration) * time.Second,
-		RenewDeadline:   time.Duration(renewDeadline) * time.Second,
-		RetryPeriod:     time.Duration(retryPeriod) * time.Second,
+		LeaseDuration:   *leaseDuration * time.Second,
+		RenewDeadline:   *renewDeadline * time.Second,
+		RetryPeriod:     *retryPeriod * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				// this pod now the leader! Notify listener
-				klog.Infof("Notifying %s started leading", id)
+				klog.Infof("Notifying %s started leading", *id)
 				resp, err := http.Get(startURL)
-				defer resp.Body.Close()
 				if err != nil {
 					klog.Errorf("Failed to notify leader of start: %v", err)
 				}
+				defer resp.Body.Close()
 			},
 			OnStoppedLeading: func() {
 				// this pod stopped leading! Notify listener
-				klog.Infof("Notifying %s stopped leading", id)
+				klog.Infof("Notifying %s stopped leading", *id)
 				resp, err := http.Get(stopURL)
-				defer resp.Body.Close()
 				if err != nil {
 					klog.Errorf("Failed to notify leader of stop: %v", err)
 				}
+				defer resp.Body.Close()
 			},
 			OnNewLeader: func(identity string) {
 				// the leader has changed

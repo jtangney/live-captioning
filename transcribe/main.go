@@ -18,36 +18,30 @@ import (
 	"k8s.io/klog"
 )
 
-const wordSettleLength int = 4
+var (
+	electionPort = flag.Int("electionPort", 4040,
+		"Listen at this port for leader election updates. Set to zero to disable leader election")
+	redisHost        = flag.String("redisHost", "localhost", "Redis host IP")
+	flushTimeout     = flag.Duration("flushTimeoutMs", 2000, "Emit pending transcriptions after this time")
+	wordSettleLength = flag.Int("wordSettleLength", 4, "Treat last N words as pending")
+	encoding         = flag.String("encoding", "LINEAR16", "Audio endcoding for input file")
+	sampleRate       = flag.Int("sampleRate", 16000, "Sample rate (Hz)")
+	channels         = flag.Int("channels", 1, "Number of audio channels")
+	lang             = flag.String("lang", "en-US", "the transcription language code")
 
-var redisClient *redis.Client
-var lastIndex = 0
-var latestTranscript string
-var pending []string
-var unstable string
+	redisClient      *redis.Client
+	lastIndex        = 0
+	latestTranscript string
+	pending          []string
+	unstable         string
+)
 
 func main() {
 	klog.InitFlags(nil)
-
-	// var isNewStream bool
-	var redisHost string
-	var electionPort int
-	var encoding string
-	var sampleRate int
-	var channels int
-	var lang string
-	flag.IntVar(&electionPort, "electionPort", 4040,
-		"Listen at this port for leader election updates. Set to zero to disable leader election")
-	flag.StringVar(&redisHost, "redisHost", "localhost", "Redis host IP")
-	flag.StringVar(&encoding, "encoding", "LINEAR16", "Audio endcoding for input file")
-	flag.IntVar(&sampleRate, "sampleRate", 16000, "Sample rate (Hz)")
-	flag.IntVar(&channels, "channels", 1, "Number of audio channels")
-	flag.StringVar(&lang, "lang", "en-US", "the transcription language code")
 	flag.Parse()
 
-	// leaderURL := fmt.Sprintf("http://localhost:%d", electionPort)
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:        redisHost + ":6379",
+		Addr:        *redisHost + ":6379",
 		Password:    "", // no password set
 		DB:          0,  // use default DB
 		DialTimeout: 3 * time.Second,
@@ -62,16 +56,16 @@ func main() {
 	streamingConfig := speechpb.StreamingRecognitionConfig{
 		Config: &speechpb.RecognitionConfig{
 			Encoding:                   speechpb.RecognitionConfig_LINEAR16,
-			SampleRateHertz:            int32(sampleRate),
-			AudioChannelCount:          int32(channels),
-			LanguageCode:               lang,
+			SampleRateHertz:            int32(*sampleRate),
+			AudioChannelCount:          int32(*channels),
+			LanguageCode:               *lang,
 			EnableAutomaticPunctuation: true,
 		},
 		InterimResults: true,
 	}
 
-	// if a port is defined, listed there for callbacks from leader election
-	if electionPort > 0 {
+	// if a port is defined, listen there for callbacks from leader election
+	if *electionPort > 0 {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Minute))
 		webHandler := func(res http.ResponseWriter, req *http.Request) {
 			if strings.Contains(req.URL.Path, "stop") {
@@ -86,14 +80,13 @@ func main() {
 					ctx, cancel = context.WithCancel(context.Background())
 					klog.Infof("I became the leader!")
 					klog.Infof("Starting goroutine to send audio")
-					// go sendAudio(ctx, client, nil, streamingConfig)
 					go sendAudio(ctx, speechClient, streamingConfig)
 					// started = true
 				}
 			}
 			res.WriteHeader(http.StatusOK)
 		}
-		addr := fmt.Sprintf(":%d", electionPort)
+		addr := fmt.Sprintf(":%d", *electionPort)
 		klog.Infof("Registering leader election listener at port %s", addr)
 		http.HandleFunc("/", webHandler)
 		http.ListenAndServe(addr, nil)
@@ -164,12 +157,14 @@ func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
 	defer close(done)
 
 	// if no results received from Speech for some period, write any pending transcriptions
-	duration := 2000 * time.Millisecond
-	timer := time.NewTimer(duration)
+	timeout := *flushTimeout * time.Millisecond
+	timer := time.NewTimer(timeout)
 	go func() {
 		<-timer.C
 		flush()
 	}()
+	defer timer.Stop()
+
 	// consume streaming responses from Speech API
 	for {
 		resp, err := stream.Recv()
@@ -190,9 +185,9 @@ func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
 			klog.Errorf("Could not recognize: %v", err)
 			return
 		}
-		
+
 		// ok, we have a valid response from API.
-		timer.Reset(duration)
+		timer.Reset(timeout)
 		if len(resp.Results) > 0 {
 			if resp.Results[0].Stability < 0.75 {
 				klog.Infof("Ignoring low stability result (%v): %s", resp.Results[0].Stability,
@@ -247,11 +242,11 @@ func handleIncremental(resp speechpb.StreamingRecognizeResponse) {
 	}
 
 	// new transcription segment. This can happen mid stream
-	if length < wordSettleLength {
+	if length < *wordSettleLength {
 		lastIndex = 0
 		pending = elements
-	} else if lastIndex < length-wordSettleLength {
-		steady := elements[lastIndex:(length - wordSettleLength)]
+	} else if lastIndex < length-*wordSettleLength {
+		steady := elements[lastIndex:(length - *wordSettleLength)]
 		lastIndex += len(steady)
 		pending = elements[lastIndex:]
 		emitStages(steady, pending, unstable)
