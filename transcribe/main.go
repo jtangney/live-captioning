@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	speech "cloud.google.com/go/speech/apiv1p1beta1"
@@ -66,30 +69,51 @@ func main() {
 
 	// if a port is defined, listen there for callbacks from leader election
 	if *electionPort > 0 {
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Minute))
+		var ctx context.Context
+		var cancel context.CancelFunc
+		addr := fmt.Sprintf(":%d", *electionPort)
+		server := &http.Server{Addr: addr}
+
+		// listen for interrupt. If so, cancel the context to gracefully stop transcriptions,
+		// then shutdown the HTTP server, which will end the main thread.
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-ch
+			if cancel != nil {
+				cancel()
+			}
+			klog.Info("Received termination, stopping transciptions")
+			if err := server.Shutdown(context.TODO()); err != nil {
+				klog.Fatalf("Error shutting down HTTP server: %v", err)
+			}
+		}()
+
+		// TODO: make atomic
+		isLeader := false
 		webHandler := func(res http.ResponseWriter, req *http.Request) {
 			if strings.Contains(req.URL.Path, "stop") {
-				if ctx.Err() == nil {
+				if isLeader {
+					isLeader = false
 					klog.Infof("I stopped being the leader!")
 					cancel()
-					// started = false
 				}
 			}
 			if strings.Contains(req.URL.Path, "start") {
-				if ctx.Err() != nil {
-					ctx, cancel = context.WithCancel(context.Background())
+				if !isLeader {
+					isLeader = true
 					klog.Infof("I became the leader!")
 					klog.Infof("Starting goroutine to send audio")
+					ctx, cancel = context.WithCancel(context.Background())
 					go sendAudio(ctx, speechClient, streamingConfig)
-					// started = true
 				}
 			}
 			res.WriteHeader(http.StatusOK)
 		}
-		addr := fmt.Sprintf(":%d", *electionPort)
-		klog.Infof("Registering leader election listener at port %s", addr)
 		http.HandleFunc("/", webHandler)
-		http.ListenAndServe(addr, nil)
+		klog.Infof("Starting leader election listener at port %s", addr)
+		// blocks
+		server.ListenAndServe()
 	} else {
 		klog.Info("Not doing leader election")
 		sendAudio(context.Background(), speechClient, streamingConfig)
@@ -150,7 +174,6 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 	}
 }
 
-// func receive(ctx context.Context, stream speechpb.Speech_StreamingRecognizeClient) {
 func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
 	// tidy up when function returns
 	defer flush()

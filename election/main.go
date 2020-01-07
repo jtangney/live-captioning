@@ -77,7 +77,7 @@ func main() {
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-ch
-		klog.Info("Received termination, signaling shutdown")
+		klog.Infof("Received termination, stopping leader election for %s", *id)
 		cancel()
 	}()
 
@@ -137,7 +137,7 @@ func main() {
 				// this pod stopped leading! Notify listener
 				klog.Infof("Notifying %s stopped leading", *id)
 				resp, err := http.Get(stopURL)
-				if err != nil {
+				if err != nil && ctx.Err() == nil {
 					klog.Errorf("Failed to notify leader of stop: %v", err)
 				}
 				defer resp.Body.Close()
