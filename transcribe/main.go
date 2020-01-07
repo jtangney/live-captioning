@@ -31,6 +31,7 @@ var (
 	sampleRate       = flag.Int("sampleRate", 16000, "Sample rate (Hz)")
 	channels         = flag.Int("channels", 1, "Number of audio channels")
 	lang             = flag.String("lang", "en-US", "the transcription language code")
+	phrases          = flag.String("phrases", "", "comma-separated list of phrase hints for Speech API. Phrases with spaces should be quoted")
 
 	redisClient      *redis.Client
 	lastIndex        = 0
@@ -56,6 +57,11 @@ func main() {
 		klog.Fatal(err)
 	}
 
+	contextPhrases := []string{}
+	if *phrases != "" {
+		contextPhrases = strings.Split(*phrases, ",")
+		klog.Infof("Supplying %d phrase hints: %+q", len(contextPhrases), contextPhrases)
+	}
 	streamingConfig := speechpb.StreamingRecognitionConfig{
 		Config: &speechpb.RecognitionConfig{
 			Encoding:                   speechpb.RecognitionConfig_LINEAR16,
@@ -63,6 +69,9 @@ func main() {
 			AudioChannelCount:          int32(*channels),
 			LanguageCode:               *lang,
 			EnableAutomaticPunctuation: true,
+			SpeechContexts: []*speechpb.SpeechContext{
+				{Phrases: contextPhrases},
+			},
 		},
 		InterimResults: true,
 	}
