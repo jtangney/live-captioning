@@ -24,14 +24,17 @@ import (
 var (
 	electionPort = flag.Int("electionPort", 4040,
 		"Listen at this port for leader election updates. Set to zero to disable leader election")
-	redisHost        = flag.String("redisHost", "localhost", "Redis host IP")
-	flushTimeout     = flag.Duration("flushTimeoutMs", 2000, "Emit pending transcriptions after this time")
-	wordSettleLength = flag.Int("wordSettleLength", 4, "Treat last N words as pending")
-	encoding         = flag.String("encoding", "LINEAR16", "Audio endcoding for input file")
-	sampleRate       = flag.Int("sampleRate", 16000, "Sample rate (Hz)")
-	channels         = flag.Int("channels", 1, "Number of audio channels")
-	lang             = flag.String("lang", "en-US", "the transcription language code")
-	phrases          = flag.String("phrases", "", "comma-separated list of phrase hints for Speech API. Phrases with spaces should be quoted")
+	redisHost          = flag.String("redisHost", "localhost", "Redis host IP")
+	audioQueue         = flag.String("audioQueue", "liveq", "Redis key for input audio data")
+	transcriptionQueue = flag.String("transcriptionQueue", "transcriptions", "Redis key for output transcriptions")
+	recoveryQueue      = flag.String("recoveryQueue", "liveq", "Redis key for recent audio data used for recovery")
+	flushTimeout       = flag.Duration("flushTimeoutMs", 2000, "Emit any pending transcriptions after this time")
+	pendingWordCount   = flag.Int("pendingWordCount", 4, "Treat last N transcribed words as pending")
+	encoding           = flag.String("encoding", "LINEAR16", "Audio endcoding for input file")
+	sampleRate         = flag.Int("sampleRate", 16000, "Sample rate (Hz)")
+	channels           = flag.Int("channels", 1, "Number of audio channels")
+	lang               = flag.String("lang", "en-US", "Transcription language code")
+	phrases            = flag.String("phrases", "", "Comma-separated list of phrase hints for Speech API. Phrases with spaces should be quoted")
 
 	redisClient      *redis.Client
 	lastIndex        = 0
@@ -41,8 +44,8 @@ var (
 )
 
 func main() {
-	klog.InitFlags(nil)
 	flag.Parse()
+	klog.InitFlags(nil)
 
 	redisClient = redis.NewClient(&redis.Options{
 		Addr:        *redisHost + ":6379",
@@ -101,20 +104,22 @@ func main() {
 		// TODO: make atomic
 		isLeader := false
 		webHandler := func(res http.ResponseWriter, req *http.Request) {
+			// if we're elected as leader, start a goroutine to read audio from
+			// Redis and stream to Cloud Speech
+			if strings.Contains(req.URL.Path, "start") {
+				if !isLeader {
+					isLeader = true
+					klog.Infof("I became the leader! Starting goroutine to send audio")
+					ctx, cancel = context.WithCancel(context.Background())
+					go sendAudio(ctx, speechClient, streamingConfig)
+				}
+			}
+			// if we stop being the leader, stop sending audio
 			if strings.Contains(req.URL.Path, "stop") {
 				if isLeader {
 					isLeader = false
 					klog.Infof("I stopped being the leader!")
 					cancel()
-				}
-			}
-			if strings.Contains(req.URL.Path, "start") {
-				if !isLeader {
-					isLeader = true
-					klog.Infof("I became the leader!")
-					klog.Infof("Starting goroutine to send audio")
-					ctx, cancel = context.WithCancel(context.Background())
-					go sendAudio(ctx, speechClient, streamingConfig)
 				}
 			}
 			res.WriteHeader(http.StatusOK)
@@ -133,6 +138,12 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 	// main loop that consumes the audio data and sends to Speech API
 	var stream speechpb.Speech_StreamingRecognizeClient
 	done := make(chan bool)
+	doRecovery := redisClient.Exists(*recoveryQueue).Val() > 0
+	if doRecovery {
+		klog.Infof("Data in %s, sending that first", *recoveryQueue)
+		emit("[RECOVER]")
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -148,26 +159,41 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 		default:
 			// process audio
 		}
-		// blocking pop audio data off the queue.
-		// Timeout occasionally for hygiene.
-		result, err := redisClient.BRPop(5*time.Second, "liveq").Result()
-		if err != nil {
-			if err == redis.Nil {
+
+		var result string
+		var err error
+		if doRecovery {
+			result, err = redisClient.RPop(*recoveryQueue).Result()
+			if result == "" {
+				doRecovery = false
+			}
+		} else {
+			// blocking pop audio data off the queue.
+			// Timeout occasionally for hygiene.
+			result, err = redisClient.BRPopLPush(*audioQueue, *recoveryQueue, 5*time.Second).Result()
+			if err == redis.Nil { // timeout
 				continue
 			}
-			klog.Errorf("Could not read from Redis liveq: %v", err)
+			redisClient.Expire(*recoveryQueue, 10*time.Second)
+			redisClient.LTrim(*recoveryQueue, 0, 50)
+		}
+		if err != nil && err != redis.Nil {
+			klog.Errorf("Could not read from Redis: %v", err)
 			flush()
 			continue
 		}
+
 		// establish bi-directional connection to Speech API if necessary.
 		// If so, start a go routine to listen for responses
 		if stream == nil {
 			stream = initStreamingRequest(ctx, speechClient, config)
-			emit("[NEW STREAM]")
 			go receive(stream, done)
+			emit("[NEW STREAM]")
 		}
+
 		// send data, transcription responses received asynchronously
-		decoded, _ := base64.StdEncoding.DecodeString(result[1])
+		// redisClient.Expire("recoveryq", 10 * time.Second)
+		decoded, _ := base64.StdEncoding.DecodeString(result)
 		sendErr := stream.Send(&speechpb.StreamingRecognizeRequest{
 			StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
 				AudioContent: decoded,
@@ -274,11 +300,11 @@ func handleIncremental(resp speechpb.StreamingRecognizeResponse) {
 	}
 
 	// new transcription segment. This can happen mid stream
-	if length < *wordSettleLength {
+	if length < *pendingWordCount {
 		lastIndex = 0
 		pending = elements
-	} else if lastIndex < length-*wordSettleLength {
-		steady := elements[lastIndex:(length - *wordSettleLength)]
+	} else if lastIndex < length-*pendingWordCount {
+		steady := elements[lastIndex:(length - *pendingWordCount)]
 		lastIndex += len(steady)
 		pending = elements[lastIndex:]
 		emitStages(steady, pending, unstable)
@@ -297,10 +323,7 @@ func emitStages(steady []string, pending []string, unstable string) {
 
 func emit(msg string) {
 	klog.Info(msg)
-	cmd := redisClient.Publish("transcriptions", msg)
-	if cmd.Val() == 0 {
-		klog.Warning("No subscibers connected to PubSub channel")
-	}
+	redisClient.LPush(*transcriptionQueue, msg)
 }
 
 func flush() {
@@ -327,6 +350,6 @@ func reset() {
 // debug
 func printAllResults(resp speechpb.StreamingRecognizeResponse) {
 	for _, result := range resp.Results {
-		fmt.Printf("Result: %+v\n", result)
+		klog.Infof("Result: %+v\n", result)
 	}
 }
