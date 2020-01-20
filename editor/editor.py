@@ -49,7 +49,6 @@ def _init():
       subscribed = True
       global thread
       thread = socketio.start_background_task(target=_pubsub_listen)
-      print('started new background task')
     except Exception as err:
       print('Exception subscribing to Redis channel: %s' % err)
       _reconnect()
@@ -63,6 +62,8 @@ def _pubsub_listen(sleep=0.1):
         payload = msg['data'].decode('utf-8')
         socketio.emit('pubsubmsg', payload)
       socketio.sleep(sleep)
+  except redis.exceptions.TimeoutError:
+    _reconnect()
   except redis.exceptions.RedisError as err:
     print('Exception in pubsub listen thread: %s' % err)
     _reconnect()

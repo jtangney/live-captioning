@@ -9,31 +9,37 @@
             // Connect to the Socket.IO server.
             // The connection URL has the following format, relative to the current page:
             //     http[s]://<domain>:<port>[/<namespace>]
-            var socket = io();
-            // Event handler for new connections.
-            // The callback function is invoked when a connection with the
-            // server is established.
-            socket.on('connect', function() {
-                socket.emit('my_event', {data: 'I\'m connected!'});
+            var socket = io({
+                'reconnectionDelay': 500,
+                'reconnectionDelayMax': 2000,
+                'timeout': 10000
             });
+            // Event handler for new connections.
+            socket.on('connect', function() {
+                console.log('Socketio connected '+ new Date().toISOString());
+            });
+            socket.on('disconnect', function() {
+                console.log('Socketio disconnected  '+ new Date().toISOString());
+            });
+            socket.on('connect_error', function() {
+                console.log('connect_error  '+ new Date().toISOString());
+            });
+            socket.on('connect_timeout', function() {
+                console.log('connect_timeout  '+ new Date().toISOString());
+            });
+
             // Event handler for server sent data.
             // The callback function is invoked whenever the server emits data
-            // to the client. The data is then displayed in the "Received"
-            // section of the page.
-            socket.on('message', function(msg, cb) {
-                $('#log').append('<br>' + $('<div/>').text('Received: ' + msg).html());
-                if (cb)
-                    cb();
-            });
+            // to the client. The data is then displayed on page
             var re = new RegExp('^\\[.+\\]');
-            socket.on('pubsubmsg', function(msg, cb) {
+            socket.on('transcript', function(msg, cb) {
                 var elems = msg.split("|");
-                console.log(elems);
+                //console.log(elems);
                 if (elems.length > 0) {
-                    $('#log').append(elems[0]+' ');
                     if (re.test(elems[0])) {
                         $('#log').append('<br>');
                     }
+                    $('#log').append(elems[0]+' ');
                 }
                 if (elems.length > 1) {
                     $('#pending').text(elems[1]);

@@ -4,4 +4,4 @@ WORKDIR /app
 ADD . /app
 
 RUN pip install -r requirements.txt
-ENTRYPOINT [ "python", "-u", "/app/editor.py" ]
+ENTRYPOINT [ "python", "-u", "/app/reviewer.py" ]
