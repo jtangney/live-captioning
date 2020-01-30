@@ -12,13 +12,13 @@ steps:
     waitFor: ['-']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/editor', './editor' ]
+    args: [ 'build', '-t', 'eu.gcr.io/$PROJECT_ID/reviewer', './reviewer' ]
     waitFor: ['-']
 
 images: [
   'eu.gcr.io/$PROJECT_ID/ingestor',
   'eu.gcr.io/$PROJECT_ID/leader-election',
   'eu.gcr.io/$PROJECT_ID/transcriber',
-  'eu.gcr.io/$PROJECT_ID/editor'
+  'eu.gcr.io/$PROJECT_ID/reviewer'
 ]
 

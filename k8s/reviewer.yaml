@@ -1,21 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: editor-deployment
+  name: reviewer-deployment
 spec:
   selector:
     matchLabels:
-      app: editor
+      app: reviewer
   replicas: 2
   template:
     metadata:
       labels:
-        app: editor
+        app: reviewer
         dummy: test2
     spec:
       containers:
-        - name: ingestor
-          image: eu.gcr.io/live-captioning-test2/editor:latest
+        - name: reviewer
+          image: eu.gcr.io/live-captioning-test2/reviewer:latest
+          imagePullPolicy: Always
           env:
             - name: PODNAME
               valueFrom:
@@ -32,7 +33,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: editor-service
+  name: reviewer-service
 spec:
   selector:
     app: editor
