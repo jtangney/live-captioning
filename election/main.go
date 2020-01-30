@@ -41,8 +41,8 @@ func buildConfig() (*rest.Config, error) {
 }
 
 func main() {
-	klog.InitFlags(nil)
 	flag.Parse()
+	klog.InitFlags(nil)
 
 	if *port <= 0 {
 		klog.Fatal("Missing --electionPort flag")
