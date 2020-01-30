@@ -64,7 +64,6 @@ spec:
             - --encoding=LINEAR16
             - --sampleRate=16000
             - --channels=1
-#            - --electionPort=0
             - --lang=en-US
         - name: leader-election
           image: eu.gcr.io/live-captioning-test2/leader-election:latest
@@ -78,4 +77,3 @@ spec:
             - --lockName=transcriber-lock
             - --lockNamespace=default
             - --id=$(PODNAME)
-            - --logtostderr=true
