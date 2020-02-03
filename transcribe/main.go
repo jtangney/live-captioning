@@ -27,16 +27,19 @@ var (
 	redisHost          = flag.String("redisHost", "localhost", "Redis host IP")
 	audioQueue         = flag.String("audioQueue", "liveq", "Redis key for input audio data")
 	transcriptionQueue = flag.String("transcriptionQueue", "transcriptions", "Redis key for output transcriptions")
-	recoveryQueue      = flag.String("recoveryQueue", "liveq", "Redis key for recent audio data used for recovery")
-	flushTimeout       = flag.Duration("flushTimeoutMs", 2000, "Emit any pending transcriptions after this time")
+	recoveryQueue      = flag.String("recoveryQueue", "recoverq", "Redis key for recent audio data used for recovery")
+	recoveryRetainSecs = flag.Int("recoveryRetainLast", 4, "Retain the last N seconds of audio, replayed during recovery")
+	recoveryTimeout    = flag.Duration("recoveryExpiry", 10, "Expire data in recovery queue after this time (seconds)")
+	flushTimeout       = flag.Duration("flushTimeout", 2000, "Emit any pending transcriptions after this time (millis)")
 	pendingWordCount   = flag.Int("pendingWordCount", 4, "Treat last N transcribed words as pending")
-	encoding           = flag.String("encoding", "LINEAR16", "Audio endcoding for input file")
 	sampleRate         = flag.Int("sampleRate", 16000, "Sample rate (Hz)")
 	channels           = flag.Int("channels", 1, "Number of audio channels")
 	lang               = flag.String("lang", "en-US", "Transcription language code")
 	phrases            = flag.String("phrases", "", "Comma-separated list of phrase hints for Speech API. Phrases with spaces should be quoted")
 
 	redisClient      *redis.Client
+	recoveryExpiry   = *recoveryTimeout * time.Second
+	recoveryRetain   = int64(*recoveryRetainSecs * 10) // each audio element ~100ms
 	lastIndex        = 0
 	latestTranscript string
 	pending          []string
@@ -134,8 +137,8 @@ func main() {
 	}
 }
 
+// Consumes queued audio data from Redis, and sends to Speech API.
 func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb.StreamingRecognitionConfig) {
-	// main loop that consumes the audio data and sends to Speech API
 	var stream speechpb.Speech_StreamingRecognizeClient
 	done := make(chan bool)
 	doRecovery := redisClient.Exists(*recoveryQueue).Val() > 0
@@ -168,14 +171,17 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 				doRecovery = false
 			}
 		} else {
-			// blocking pop audio data off the queue.
+			// Blocking pop audio data off the queue, and push onto recovery queue.
+			// See https://redis.io/commands/rpoplpush#pattern-reliable-queue.
 			// Timeout occasionally for hygiene.
 			result, err = redisClient.BRPopLPush(*audioQueue, *recoveryQueue, 5*time.Second).Result()
 			if err == redis.Nil { // timeout
 				continue
 			}
-			redisClient.Expire(*recoveryQueue, 10*time.Second)
-			redisClient.LTrim(*recoveryQueue, 0, 50)
+			// Retain only the last N seconds in the recovery queue
+			redisClient.LTrim(*recoveryQueue, 0, recoveryRetain)
+			// Expire the recovery data after M seconds
+			redisClient.Expire(*recoveryQueue, recoveryExpiry)
 		}
 		if err != nil && err != redis.Nil {
 			klog.Errorf("Could not read from Redis: %v", err)
@@ -187,7 +193,7 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 		// If so, start a go routine to listen for responses
 		if stream == nil {
 			stream = initStreamingRequest(ctx, speechClient, config)
-			go receive(stream, done)
+			go receiveResponses(stream, done)
 			emit("[NEW STREAM]")
 		}
 
@@ -209,12 +215,12 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 	}
 }
 
-func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
+func receiveResponses(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
 	// tidy up when function returns
 	defer flush()
 	defer close(done)
 
-	// if no results received from Speech for some period, write any pending transcriptions
+	// if no results received from Speech for some period, emit any pending transcriptions
 	timeout := *flushTimeout * time.Millisecond
 	timer := time.NewTimer(timeout)
 	go func() {
@@ -244,7 +250,7 @@ func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
 			return
 		}
 
-		// ok, we have a valid response from API.
+		// ok, we have a valid response from Speech.
 		timer.Reset(timeout)
 		if len(resp.Results) > 0 {
 			if resp.Results[0].Stability < 0.75 {
@@ -252,6 +258,7 @@ func receive(stream speechpb.Speech_StreamingRecognizeClient, done chan bool) {
 					resp.Results[0].Alternatives[0].Transcript)
 				continue
 			}
+			// emit the most recent transcription snippet
 			handleIncremental(*resp)
 		}
 	}
@@ -276,11 +283,11 @@ func initStreamingRequest(ctx context.Context, client *speech.Client, config spe
 }
 
 // Handles transcription results.
-// Broadly speaking, the goal is to publish 1-3 trancribed words at a time.
-// An index is maintained to determine last published words.
+// Broadly speaking, the goal is to emit 1-3 trancribed words at a time.
+// An index is maintained to determine last emitted words.
 // The transcription result is split into categories:
 // 'steady' - these words are assumed final, and can be published
-// 'pending' - interim transcriptions can evolve as the API gets more
+// 'pending' - interim transcriptions often evolve as the API gets more
 // 		data, so the last few words should not be published yet
 // 'unstable' - low-stability transcritpion alternatives
 func handleIncremental(resp speechpb.StreamingRecognizeResponse) {
@@ -299,23 +306,25 @@ func handleIncremental(resp speechpb.StreamingRecognizeResponse) {
 		return
 	}
 
-	// new transcription segment. This can happen mid stream
+	// lower confidence results
+	if len(resp.Results) > 1 {
+		unstable = resp.Results[1].Alternatives[0].Transcript
+	}
+	// Treat last N words as pending.
 	if length < *pendingWordCount {
 		lastIndex = 0
 		pending = elements
+		emitStages([]string{}, pending, unstable)
 	} else if lastIndex < length-*pendingWordCount {
 		steady := elements[lastIndex:(length - *pendingWordCount)]
 		lastIndex += len(steady)
 		pending = elements[lastIndex:]
 		emitStages(steady, pending, unstable)
 	}
-	if len(resp.Results) > 1 {
-		unstable = resp.Results[1].Alternatives[0].Transcript
-	}
 }
 
 func emitStages(steady []string, pending []string, unstable string) {
-	// concatenate the different stages, let client decide how to display
+	// concatenate the different segments, let client decide how to display
 	msg := fmt.Sprintf("%s|%s|%s", strings.Join(steady, " "),
 		strings.Join(pending, " "), unstable)
 	emit(msg)
@@ -348,7 +357,7 @@ func reset() {
 }
 
 // debug
-func printAllResults(resp speechpb.StreamingRecognizeResponse) {
+func printResponses(resp speechpb.StreamingRecognizeResponse) {
 	for _, result := range resp.Results {
 		klog.Infof("Result: %+v\n", result)
 	}
