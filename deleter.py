@@ -1,0 +1,61 @@
+import argparse
+import json
+import random
+import subprocess
+import sys
+import time
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--leader', action='store_true')
+parser.add_argument('--applabel', default=None)
+parser.add_argument('--count', default=1, type=int)
+parser.add_argument('--iterations', default=1, type=int)
+parser.add_argument('--delay', default=15, type=int)
+args = parser.parse_args()
+
+
+def delete_leader(cmap='transcriber-lock'):
+  config_map_str = _exec_command('kubectl get configmap %s -o json' % cmap)
+  config_map = json.loads(config_map_str)
+  annotations = config_map['metadata']['annotations']
+  leader_props_str = annotations['control-plane.alpha.kubernetes.io/leader']
+  leader_props = json.loads(leader_props_str)
+  leader_id = leader_props['holderIdentity']
+  print('Deleting transcriber leader pod: %s' % leader_id)
+  _delete_pod(leader_id)
+
+
+def delete_pods(app_label, count):
+  get_pods_command = 'kubectl get pods -o jsonpath={.items[*].metadata.name}'
+  if app_label:
+    get_pods_command += ' -l=app=%s' % app_label
+  all_pods = _exec_command(get_pods_command)
+  if not all_pods:
+    print('ERROR: no pods found matching command!')
+    sys.exit(1)
+
+  pods = all_pods.split(' ')
+  victims = random.sample(pods, min(count, len(pods)))
+  print('killing %d pod(s): %s' % (count, victims))
+  for victim in victims:
+    _delete_pod(victim)
+
+
+def _delete_pod(name):
+  kill_pod_command = 'kubectl delete pod %s --force --grace-period=0' % name
+  result = _exec_command(kill_pod_command)
+  print('%s at %s' % (result, time.strftime("%H:%M:%S", time.gmtime())))
+
+
+def _exec_command(cmd):
+  elems = cmd.split(' ')
+  return subprocess.check_output(elems, encoding='utf-8')
+
+
+for i in range(args.iterations):
+  if i > 0:
+    time.sleep(args.delay)
+  if args.leader:
+    delete_leader()
+  else:
+    delete_pods(args.applabel, args.count)
