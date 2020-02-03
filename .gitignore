@@ -14,7 +14,7 @@
 log/
 target/
 
-venv/
+*venv/
 *.pyc
 
 obsolete/
