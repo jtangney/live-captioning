@@ -5,7 +5,6 @@ import wave
 
 import pyaudio
 import socketio
-import sounddevice
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--targetip", default="localhost:8080")
@@ -27,18 +26,20 @@ def disconnect():
 
 async def stream_mic_audio(target_ip):
   """Streams audio from the local microphone via socketio"""
-  input_devices = sounddevice.query_devices(kind='input')
-  if not input_devices:
+  pa = pyaudio.PyAudio()
+  try:
+    pa.get_default_input_device_info()
+  except OSError:
     print('No audio input devices found! Aborting!')
     return
 
   rate = 16000
   chunk = int(rate / 10)
-  stream = pyaudio.PyAudio().open(format=pyaudio.paInt16,
-                                  channels=1,
-                                  rate=rate,
-                                  input=True,
-                                  frames_per_buffer=chunk)
+  stream = pa.open(format=pyaudio.paInt16,
+                   channels=1,
+                   rate=rate,
+                   input=True,
+                   frames_per_buffer=chunk)
   url = 'http://' + target_ip
   sio.connect(url)
   while sio.connected:
@@ -49,16 +50,16 @@ async def stream_mic_audio(target_ip):
 async def stream_file(target_ip, filename):
   """Streams the supplied WAV file via socketio, continuously replaying"""
   wf = wave.open(filename, 'rb')
-  output_devices = sounddevice.query_devices(kind='output')
-  if not output_devices:
-    print('No output audio devices found! Perhaps running in Cloud Shell? Working around')
-    outstream = None
-  else:
-    pa = pyaudio.PyAudio()
+  pa = pyaudio.PyAudio()
+  try:
     outstream = pa.open(format=pa.get_format_from_width(wf.getsampwidth()),
                         channels=wf.getnchannels(),
                         rate=wf.getframerate(),
                         output=True)
+  except OSError:
+    print('No output audio devices found! Running in Cloud Shell?')
+    outstream = None
+
   # read in ~100ms chunks
   chunk = int(wf.getframerate() / 10)
   data = wf.readframes(chunk)
