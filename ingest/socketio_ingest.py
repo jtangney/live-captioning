@@ -3,12 +3,12 @@ import base64
 import queue
 
 import eventlet
-
-eventlet.monkey_patch()
+import redis
 from flask import Flask
 from flask_socketio import SocketIO
-import redis
 
+# for socketio background tasks
+eventlet.monkey_patch()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--host", default="localhost")
@@ -21,7 +21,7 @@ args = parser.parse_args()
 app = Flask(__name__)
 socketio = SocketIO()
 rdb = redis.Redis(host=args.redisHost, port=6379, db=0,
-                  health_check_interval=2, socket_timeout=4)
+                  health_check_interval=2, socket_timeout=3)
 buff = queue.Queue()
 connected = False
 
@@ -60,12 +60,6 @@ def _enqueue_audio(redis_queue):
         print('Ingested audio queue length: %d' % val)
     except redis.exceptions.RedisError as err:
       print('Error pushing into Redis queue: %s' % err)
-      socketio.sleep(0.5)
-
-
-@socketio.on('message')
-def handle_message(message):
-  print('Ignoring received string message: ' + message)
 
 
 @app.route('/')

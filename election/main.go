@@ -1,3 +1,9 @@
+// Leader Election client implementation that uses the built-in Kubernetes leaderelection
+// package. Intended to be deployed as sidecar alongside a separate container, which is notified
+// via a configured HTTP webhook when it is elected leader.
+//
+// Adapted from https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go.
+// See also https://github.com/kubernetes/client-go/blob/kubernetes-1.14.8/tools/leaderelection/leaderelection.go
 package main
 
 import (
@@ -16,7 +22,6 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog"
 
-	// clientset "k8s.io/client-go/kubernetes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes/typed/core/v1"
 )
@@ -54,9 +59,7 @@ func main() {
 		klog.Fatal("Missing --lockNamespace flag.")
 	}
 
-	// leader election uses the Kubernetes API by writing to a
-	// lock object, which can be a LeaseLock object (preferred),
-	// a ConfigMap, or an Endpoints (deprecated) object.
+	// leader election uses the Kubernetes API by writing to a lock object.
 	// Conflicting writes are detected and each client handles those actions
 	// independently.
 	config, err := buildConfig()
@@ -81,8 +84,8 @@ func main() {
 		cancel()
 	}()
 
-	// we use the Lease lock type since edits to Leases are less common
-	// and fewer objects in the cluster watch "all Leases".
+	// NOTE: here use we use a ConfigMapLock, as the LeaseLock type had a bug
+	// in the 1.14 version, which is used in the normal GKE release channel.
 	lock := &resourcelock.ConfigMapLock{
 		ConfigMapMeta: metav1.ObjectMeta{
 			Name:      *lockName,
@@ -93,16 +96,6 @@ func main() {
 			Identity: *id,
 		},
 	}
-	// lock := &resourcelock.LeaseLock{
-	// 	LeaseMeta: metav1.ObjectMeta{
-	// 		Name:      leaseLockName,
-	// 		Namespace: leaseLockNamespace,
-	// 	},
-	// 	Client: client.CoordinationV1(),
-	// 	LockConfig: resourcelock.ResourceLockConfig{
-	// 		Identity: id,
-	// 	},
-	// }
 
 	klog.Infof("Commencing leader election for candidate %s", *id)
 	listenerRootURL := fmt.Sprintf("http://localhost:%d", *port)
@@ -110,7 +103,8 @@ func main() {
 	stopURL := fmt.Sprintf("%s/stop", listenerRootURL)
 	klog.Infof("Will notify listener at %s of leader changes", listenerRootURL)
 
-	// start the leader election code loop
+	// start the leader election code loop.
+	// Notify changes in leader status via the listener webhook
 	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
 		Lock: lock,
 		// IMPORTANT: you MUST ensure that any code you have that

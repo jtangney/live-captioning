@@ -14,9 +14,9 @@ spec:
     spec:
       containers:
         - name: ingestor
-          image: eu.gcr.io/live-captioning-test2/ingestor:latest
+          image: gcr.io/pub-2451/ingestor:latest
           args:
-            - --redisHost=10.224.187.124
+            - --redisHost=10.47.217.60
             - --host=0.0.0.0
             - --port=8080
           ports:

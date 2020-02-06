@@ -1,3 +1,12 @@
+// This package provides an experimental app that transcribes a stream of audio  
+// to text using Google Cloud Speech-to-Text StreamingRecognize.
+// See https://cloud.google.com/speech-to-text/docs/basics#streaming-recognition.
+// Input audio data is consumed from a Redis queue, and rolling transcription fragments
+// are output to another Redis queue.
+// Most recently received audio data is replayed upon errors, to facilitate recovery.
+// The listens on an HTTP port to start/stop transcriptions. This facilitates deployment
+// in a leader election pattern; multiple transcriber instances can be redundantly deployed,
+// only the leader is "started" to perform transcriptions.
 package main
 
 import (
@@ -28,9 +37,9 @@ var (
 	audioQueue         = flag.String("audioQueue", "liveq", "Redis key for input audio data")
 	transcriptionQueue = flag.String("transcriptionQueue", "transcriptions", "Redis key for output transcriptions")
 	recoveryQueue      = flag.String("recoveryQueue", "recoverq", "Redis key for recent audio data used for recovery")
-	recoveryRetainSecs = flag.Int("recoveryRetainLast", 4, "Retain the last N seconds of audio, replayed during recovery")
+	recoveryRetainSecs = flag.Int("recoveryRetainLast", 5, "Retain the last N seconds of audio, replayed during recovery")
 	recoveryTimeout    = flag.Duration("recoveryExpiry", 30, "Expire data in recovery queue after this time (seconds)")
-	flushTimeout       = flag.Duration("flushTimeout", 2500, "Emit any pending transcriptions after this time (millis)")
+	flushTimeout       = flag.Duration("flushTimeout", 3000, "Emit any pending transcriptions after this time (millis)")
 	pendingWordCount   = flag.Int("pendingWordCount", 4, "Treat last N transcribed words as pending")
 	sampleRate         = flag.Int("sampleRate", 16000, "Sample rate (Hz)")
 	channels           = flag.Int("channels", 1, "Number of audio channels")
@@ -82,14 +91,15 @@ func main() {
 		InterimResults: true,
 	}
 
-	// if a port is defined, listen there for callbacks from leader election
+	// If a port is defined, listen there for callbacks from leader election.
+	// Only send audio to Speech while we're the leader.
 	if *electionPort > 0 {
 		var ctx context.Context
 		var cancel context.CancelFunc
 		addr := fmt.Sprintf(":%d", *electionPort)
 		server := &http.Server{Addr: addr}
 
-		// listen for interrupt. If so, cancel the context to gracefully stop transcriptions,
+		// listen for interrupt. If so, cancel the context to stop transcriptions,
 		// then shutdown the HTTP server, which will end the main thread.
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
@@ -132,21 +142,21 @@ func main() {
 		// blocks
 		server.ListenAndServe()
 	} else {
+		// standalone execution, testing
 		klog.Info("Not doing leader election")
 		sendAudio(context.Background(), speechClient, streamingConfig)
 	}
 }
 
-// Consumes queued audio data from Redis, and sends to Speech API.
+// Consumes queued audio data from Redis, and sends to Speech.
+// Uses a reliable queueing approach such that the most recently received audio data
+// is also temporarily stored in a parallel 'recovery' queue.
+// See https://redis.io/commands/rpoplpush#pattern-reliable-queue.
+// At startup, or in the case of Redis errors, data in the recovery queue is replayed first.
 func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb.StreamingRecognitionConfig) {
 	var stream speechpb.Speech_StreamingRecognizeClient
 	receiveChan := make(chan bool)
 	doRecovery := redisClient.Exists(*recoveryQueue).Val() > 0
-	// if doRecovery {
-	// 	klog.Infof("Data in %s, sending that first", *recoveryQueue)
-	// 	emit("[RECOVER]")
-	// }
-	// doRecovery := true
 	recovering := false
 
 	for {
@@ -156,10 +166,10 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 			return
 		case _, ok := <-receiveChan:
 			if !ok && stream != nil {
-				klog.Info("done channel closed, resetting stream")
+				klog.Info("receive channel closed, resetting stream")
 				stream = nil
 				receiveChan = make(chan bool)
-				reset()
+				resetIndex()
 				continue
 			}
 		default:
@@ -181,37 +191,25 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 			}
 		} else {
 			// Blocking pop audio data off the queue, and push onto recovery queue.
-			// See https://redis.io/commands/rpoplpush#pattern-reliable-queue.
 			// Timeout occasionally for hygiene.
 			result, err = redisClient.BRPopLPush(*audioQueue, *recoveryQueue, 5*time.Second).Result()
 			if err == redis.Nil { // pop timeout
 				continue
 			}
-			// if err != nil {
-			// 	if strings.HasPrefix(err.Error(), "READONLY ") {
-			// 		klog.Infof("Redis failover? Attempting recovery: %v", err)
-			// 		doRecovery = true
-			// 	} else {
-			// 		klog.Errorf("Could not read from Redis: %v", err)
-			// 	}
-			// 	continue
-			// }
+			// temporarily retain the last few seconds of recent audio
 			if err == nil {
-				// Retain only the last N seconds in the recovery queue
 				redisClient.LTrim(*recoveryQueue, 0, recoveryRetain)
-				// Expire the recovery data after M seconds
 				redisClient.Expire(*recoveryQueue, recoveryExpiry)
 			}
 		}
 		if err != nil && err != redis.Nil {
 			klog.Errorf("Could not read from Redis: %v", err)
-			// flush()
 			doRecovery = true
 			continue
 		}
 
-		// establish bi-directional connection to Speech API if necessary.
-		// If so, start a go routine to listen for responses
+		// Establish bi-directional connection to Cloud Speech and
+		// start a go routine to listen for responses
 		if stream == nil {
 			stream = initStreamingRequest(ctx, speechClient, config)
 			go receiveResponses(stream, receiveChan)
@@ -235,22 +233,21 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 	}
 }
 
+// Consumes StreamingResponses from Speech.
 func receiveResponses(stream speechpb.Speech_StreamingRecognizeClient, receiveChan chan bool) {
-	// tidy up when function returns
+	// indicate that we're no longer listening for responses
 	defer close(receiveChan)
-	// don't really want to flush on return here, as it doesn't make sense in recovery
-	// scenario. Only want to flush at timer expiry.
-	// defer flush()
 
 	// if no results received from Speech for some period, emit any pending transcriptions
 	timeout := *flushTimeout * time.Millisecond
 	timer := time.NewTimer(timeout)
-	go flushOnExpiry(timer)
-	// go flushCloseOnExpiry(timer, stream)
-	// go closeOnExpiry(timer, stream)
+	go func() {
+		<-timer.C
+		flush()
+	}()
 	defer timer.Stop()
 
-	// consume streaming responses from Speech API
+	// consume streaming responses from Speech
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
@@ -270,18 +267,12 @@ func receiveResponses(stream speechpb.Speech_StreamingRecognizeClient, receiveCh
 			klog.Errorf("Could not recognize: %v", err)
 			return
 		}
+		// if we nothing received for a time, stop receiving
 		if !timer.Stop() {
-			klog.Info("Timer expired, returning from receive")
 			return
 		}
-
 		// ok, we have a valid response from Speech.
 		timer.Reset(timeout)
-		// if !timer.Reset(timeout) {
-		// 	// go flushOnExpiry(timer)
-		// 	// go flushCloseOnExpiry(timer, stream)
-		// 	go closeOnExpiry(timer, stream)
-		// }
 		processResponses(*resp)
 	}
 }
@@ -291,7 +282,7 @@ func receiveResponses(stream speechpb.Speech_StreamingRecognizeClient, receiveCh
 // An index is maintained to determine last emitted words.
 // Emits a delimited string with 3 parts:
 // 'steady' - these words are assumed final (won't change)
-// 'pending' - interim transcriptions often evolve as the API gets more data,
+// 'pending' - interim transcriptions often evolve as Speech gets more data,
 // 		so the most recently transcribed words should be treated with caution
 // 'unstable' - low-stability transcritpion alternatives
 func processResponses(resp speechpb.StreamingRecognizeResponse) {
@@ -310,7 +301,7 @@ func processResponses(resp speechpb.StreamingRecognizeResponse) {
 		klog.Info("Final result! Resetting")
 		final := elements[lastIndex:]
 		emit(strings.Join(final, " "))
-		reset()
+		resetIndex()
 		return
 	}
 	if result.Stability < 0.75 {
@@ -319,11 +310,12 @@ func processResponses(resp speechpb.StreamingRecognizeResponse) {
 		return
 	}
 
-	// lower confidence results
+	// unstable, speculative transcriptions (very likley to change)
 	if len(resp.Results) > 1 {
 		unstable = resp.Results[1].Alternatives[0].Transcript
 	}
 	// Treat last N words as pending.
+	// Treat delta between last and current index as steady
 	if length < *pendingWordCount {
 		lastIndex = 0
 		pending = elements
@@ -366,22 +358,6 @@ func emit(msg string) {
 	redisClient.LPush(*transcriptionQueue, msg)
 }
 
-func flushOnExpiry(timer *time.Timer) {
-	<-timer.C
-	flush()
-}
-
-func flushCloseOnExpiry(timer *time.Timer, stream speechpb.Speech_StreamingRecognizeClient) {
-	<-timer.C
-	flush()
-	stream.CloseSend()
-}
-
-func closeOnExpiry(timer *time.Timer, stream speechpb.Speech_StreamingRecognizeClient) {
-	<-timer.C
-	stream.CloseSend()
-}
-
 func flush() {
 	msg := ""
 	if pending != nil {
@@ -394,16 +370,16 @@ func flush() {
 		klog.Info("Flushing...")
 		emit("[FLUSH] " + msg)
 	}
-	reset()
+	resetIndex()
 }
 
-func reset() {
+func resetIndex() {
 	lastIndex = 0
 	pending = nil
 	unstable = ""
 }
 
-// debug
+// debugging
 func logResponses(resp speechpb.StreamingRecognizeResponse) {
 	for _, result := range resp.Results {
 		klog.Infof("Result: %+v\n", result)

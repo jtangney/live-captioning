@@ -15,6 +15,7 @@ args = parser.parse_args()
 
 
 def delete_leader(cmap='transcriber-lock'):
+  """Force-deletes the current transcriber leader pod"""
   config_map_str = _exec_command('kubectl get configmap %s -o json' % cmap)
   config_map = json.loads(config_map_str)
   annotations = config_map['metadata']['annotations']
@@ -26,6 +27,7 @@ def delete_leader(cmap='transcriber-lock'):
 
 
 def delete_pods(app_label, count):
+  """Force-deletes random pod(s), optionally matching label"""
   get_pods_command = 'kubectl get pods -o jsonpath={.items[*].metadata.name}'
   if app_label:
     get_pods_command += ' -l=app=%s' % app_label
@@ -42,6 +44,7 @@ def delete_pods(app_label, count):
 
 
 def _delete_pod(name):
+  """Force-deletes a single pod"""
   kill_pod_command = 'kubectl delete pod %s --force --grace-period=0' % name
   result = _exec_command(kill_pod_command)
   print('%s at %s' % (result, time.strftime("%H:%M:%S", time.gmtime())))

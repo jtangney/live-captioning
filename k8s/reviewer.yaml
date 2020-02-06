@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: reviewer
-          image: eu.gcr.io/live-captioning-test2/reviewer:latest
+          image: gcr.io/pub-2451/reviewer:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
@@ -23,7 +23,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
           args:
-            - --redisHost=10.224.187.124
+            - --redisHost=10.47.217.60
             - --host=0.0.0.0
             - --id=$(PODNAME)
           ports:

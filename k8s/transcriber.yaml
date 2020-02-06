@@ -51,7 +51,7 @@ spec:
       serviceAccountName: leader-election
       containers:
         - name: transcriber
-          image: eu.gcr.io/live-captioning-test2/transcriber:latest
+          image: gcr.io/pub-2451/transcriber:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
@@ -59,12 +59,12 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
           args:
-            - --redisHost=10.224.187.124
+            - --redisHost=10.47.217.60
             - --sampleRate=16000
             - --channels=1
             - --lang=en-US
         - name: leader-election
-          image: eu.gcr.io/live-captioning-test2/leader-election:latest
+          image: gcr.io/pub-2451/leader-election:latest
           imagePullPolicy: Always
           env:
             - name: PODNAME
