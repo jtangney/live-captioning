@@ -4,6 +4,7 @@ import random
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--leader', action='store_true')
@@ -26,7 +27,7 @@ def delete_leader(cmap='transcriber-lock'):
   _delete_pod(leader_id)
 
 
-def delete_pods(app_label, count):
+def delete_pods(app_label=None, count=1):
   """Force-deletes random pod(s), optionally matching label"""
   get_pods_command = 'kubectl get pods -o jsonpath={.items[*].metadata.name}'
   if app_label:
@@ -36,6 +37,7 @@ def delete_pods(app_label, count):
     print('ERROR: no pods found matching command!')
     sys.exit(1)
 
+  print(all_pods)
   pods = all_pods.split(' ')
   victims = random.sample(pods, min(count, len(pods)))
   print('killing %d pod(s): %s' % (count, victims))
@@ -47,7 +49,7 @@ def _delete_pod(name):
   """Force-deletes a single pod"""
   kill_pod_command = 'kubectl delete pod %s --force --grace-period=0' % name
   result = _exec_command(kill_pod_command)
-  print('%s at %s' % (result, time.strftime("%H:%M:%S", time.gmtime())))
+  print('%s at %s' % (result, datetime.utcnow()))
 
 
 def _exec_command(cmd):

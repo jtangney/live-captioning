@@ -23,14 +23,12 @@ socketio = SocketIO()
 rdb = redis.Redis(host=args.redisHost, port=6379, db=0,
                   health_check_interval=2, socket_timeout=3)
 buff = queue.Queue()
-connected = False
 
 
 @socketio.on('connect')
 def connect():
   print('%s socket connected!' % args.id)
-  global connected
-  connected = True
+  socketio.emit('pod_id', args.id)
 
 
 @socketio.on('disconnect')
@@ -48,15 +46,11 @@ def handle_data(data):
 def _enqueue_audio(redis_queue):
   """Blocking-reads data from the buffer and adds to Redis queue"""
   while True:
-    if not connected:
-      socketio.sleep(0.1)
-      continue
-
     try:
       chunk = buff.get(block=True)
       val = rdb.lpush(redis_queue, chunk)
       # debugging; under normal circumstances audio should not be accumulating
-      if val > 1:
+      if val > 5:
         print('Ingested audio queue length: %d' % val)
     except redis.exceptions.RedisError as err:
       print('Error pushing into Redis queue: %s' % err)
@@ -64,7 +58,7 @@ def _enqueue_audio(redis_queue):
 
 @app.route('/')
 def hello_world():
-  return 'hello from ' + args.id
+  return 'Hello from ' + args.id
 
 
 if __name__ == '__main__':

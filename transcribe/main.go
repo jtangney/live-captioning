@@ -1,4 +1,4 @@
-// This package provides an experimental app that transcribes a stream of audio  
+// This package provides an experimental app that transcribes a stream of audio
 // to text using Google Cloud Speech-to-Text StreamingRecognize.
 // See https://cloud.google.com/speech-to-text/docs/basics#streaming-recognition.
 // Input audio data is consumed from a Redis queue, and rolling transcription fragments
@@ -49,10 +49,9 @@ var (
 	redisClient      *redis.Client
 	recoveryExpiry   = *recoveryTimeout * time.Second
 	recoveryRetain   = int64(*recoveryRetainSecs * 10) // each audio element ~100ms
-	lastIndex        = 0
 	latestTranscript string
+	lastIndex        = 0
 	pending          []string
-	unstable         string
 )
 
 func main() {
@@ -157,7 +156,7 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 	var stream speechpb.Speech_StreamingRecognizeClient
 	receiveChan := make(chan bool)
 	doRecovery := redisClient.Exists(*recoveryQueue).Val() > 0
-	recovering := false
+	replaying := false
 
 	for {
 		select {
@@ -182,12 +181,12 @@ func sendAudio(ctx context.Context, speechClient *speech.Client, config speechpb
 			result, err = redisClient.RPop(*recoveryQueue).Result()
 			if err == redis.Nil { // no more recovery data
 				doRecovery = false
-				recovering = false
+				replaying = false
 				continue
 			}
-			if err == nil && !recovering {
-				recovering = true
-				emit("[RECOVER]")
+			if err == nil && !replaying {
+				replaying = true
+				emit("[REPLAY]")
 			}
 		} else {
 			// Blocking pop audio data off the queue, and push onto recovery queue.
@@ -311,6 +310,7 @@ func processResponses(resp speechpb.StreamingRecognizeResponse) {
 	}
 
 	// unstable, speculative transcriptions (very likley to change)
+	unstable := ""
 	if len(resp.Results) > 1 {
 		unstable = resp.Results[1].Alternatives[0].Transcript
 	}
@@ -363,9 +363,6 @@ func flush() {
 	if pending != nil {
 		msg += strings.Join(pending, " ")
 	}
-	if unstable != "" && !strings.HasSuffix(msg, unstable) {
-		msg += unstable
-	}
 	if msg != "" {
 		klog.Info("Flushing...")
 		emit("[FLUSH] " + msg)
@@ -376,7 +373,6 @@ func flush() {
 func resetIndex() {
 	lastIndex = 0
 	pending = nil
-	unstable = ""
 }
 
 // debugging

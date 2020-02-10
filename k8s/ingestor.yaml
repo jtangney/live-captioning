@@ -15,10 +15,16 @@ spec:
       containers:
         - name: ingestor
           image: gcr.io/pub-2451/ingestor:latest
+          env:
+            - name: PODNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           args:
-            - --redisHost=10.47.217.60
+            - --redisHost=10.221.13.124
             - --host=0.0.0.0
             - --port=8080
+            - --id=$(PODNAME)
           ports:
             - containerPort: 8080
 

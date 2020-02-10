@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import time
 import wave
+from datetime import datetime
 
 import pyaudio
 import socketio
@@ -11,17 +12,23 @@ parser.add_argument("--targetip", default="localhost:8080")
 parser.add_argument("--file", default="pager-article-snippet.wav")
 args = parser.parse_args()
 
-sio = socketio.Client()
+sio = socketio.Client(reconnection_delay=1, reconnection_delay_max=1,
+                      randomization_factor=0, logger=False)
 
 
 @sio.event
 def connect():
-  print("Established socket connection!")
+  print("Socket connected at %s" % datetime.utcnow())
 
 
 @sio.event
 def disconnect():
-  print("Socket disconnected!")
+  print("Socket disconnected at %s" % datetime.utcnow())
+
+
+@sio.on('pod_id')
+def pod_id(msg):
+  print('Connected to pod: %s' % msg)
 
 
 async def stream_mic_audio(target_ip):
@@ -64,9 +71,10 @@ async def stream_file(target_ip, filename):
   chunk = int(wf.getframerate() / 10)
   data = wf.readframes(chunk)
   url = 'http://' + target_ip
+  sio.connect(url)
   while True:
     try:
-      sio.connect(url)
+      # sio.connect(url)
       while sio.connected:
         if data != '' and len(data) != 0:
           sio.emit('data', data)
@@ -79,13 +87,13 @@ async def stream_file(target_ip, filename):
           data = wf.readframes(chunk)
         else:
           print('EOF, pausing')
-          time.sleep(1.0)
+          time.sleep(0.5)
           wf = wave.open(filename, 'rb')
           data = wf.readframes(chunk)
           print('restarting playback')
+      # print('socketio not connected!')
     except socketio.exceptions.ConnectionError as err:
-      print('Connection error! Retrying...: %s' % err)
-      time.sleep(0.5)
+      print('Connection error: %s! Retrying at %s' % (err, datetime.utcnow()))
 
 
 asyncio.get_event_loop().run_until_complete(stream_file(
