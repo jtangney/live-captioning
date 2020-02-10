@@ -60,7 +60,7 @@ spec:
                   fieldPath: metadata.name
           args:
             - --redisHost=10.221.13.124
-            - --sampleRate=16000
+            - --sampleRate=44100
             - --channels=1
             - --lang=en-US
         - name: leader-election

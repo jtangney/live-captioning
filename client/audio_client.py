@@ -9,7 +9,7 @@ import socketio
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--targetip", default="localhost:8080")
-parser.add_argument("--file", default="pager-article-snippet.wav")
+parser.add_argument("--file", default="humptydumpty.wav")
 args = parser.parse_args()
 
 sio = socketio.Client(reconnection_delay=1, reconnection_delay_max=1,

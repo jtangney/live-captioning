@@ -51,7 +51,6 @@ def _qread():
         fragment = rdb.brpop(args.redisQueue, timeout=2)
         if fragment is not None:
           socketio.emit('transcript', fragment[1].decode('utf-8'))
-          print('%s emitting transcript' % args.id)
       except redis.exceptions.ReadOnlyError as re:
         print('Redis ReadOnlyError (failover?): %s' % re)
         socketio.emit('transcript', '[REDIS-FAILOVER]')
