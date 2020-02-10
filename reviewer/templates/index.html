@@ -6,13 +6,10 @@
     <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js" integrity="sha256-yr4fRk/GU1ehYJPAs8P4JlTgu0Hdsp4ZKrx8bDEDC3I=" crossorigin="anonymous"></script>
     <script type="text/javascript" charset="utf-8">
         $(document).ready(function() {
-            // Connect to the Socket.IO server.
-            // The connection URL has the following format, relative to the current page:
-            //     http[s]://<domain>:<port>[/<namespace>]
             var socket = io({
                 'reconnectionDelay': 500,
-                'reconnectionDelayMax': 2000,
-                'timeout': 10000
+                'reconnectionDelayMax': 1000,
+                'timeout': 3000
             });
             // Event handler for new connections.
             socket.on('connect', function() {
@@ -20,6 +17,7 @@
             });
             socket.on('disconnect', function() {
                 console.log('Socketio disconnected  '+ new Date().toISOString());
+                $('#podname').text('')
             });
             socket.on('connect_error', function() {
                 console.log('connect_error  '+ new Date().toISOString());
@@ -27,19 +25,22 @@
             socket.on('connect_timeout', function() {
                 console.log('connect_timeout  '+ new Date().toISOString());
             });
-
+            socket.on('pod_id', function(msg) {
+                console.log('Connected to pod: '+msg);
+                $('#podname').text(msg)
+            });
             // Event handler for server sent data.
-            // The callback function is invoked whenever the server emits data
-            // to the client. The data is then displayed on page
+            // Splits the received transcription into its steady/pending/unstable
+            // parts, and displays on-page.
             var re = new RegExp('^\\[.+\\]');
             socket.on('transcript', function(msg, cb) {
                 var elems = msg.split("|");
-                //console.log(elems);
                 if (elems.length > 0) {
+                    // if this is a 'control' message, add a line break
                     if (re.test(elems[0])) {
-                        $('#log').append('<br>');
+                        $('#steady').append('<br>');
                     }
-                    $('#log').append(elems[0]+' ');
+                    $('#steady').append(elems[0]+' ');
                 }
                 if (elems.length > 1) {
                     $('#pending').text(elems[1]);
@@ -60,8 +61,9 @@
 </head>
 <body>
 <h1>Live Transcription Demo</h1>
-<h2>Received:</h2>
-<div id="log" style="width:500px"></div>
+<p><b>Connected to:  </b><span id="podname"></span></p>
+<h3>Received:</h3>
+<div id="steady" style="width:500px"></div>
 <br>
 <div id="pending" style="color:Gray"></div>
 <div id="unstable" style="color:Silver"></div>
