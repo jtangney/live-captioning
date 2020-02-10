@@ -74,7 +74,6 @@ async def stream_file(target_ip, filename):
   sio.connect(url)
   while True:
     try:
-      # sio.connect(url)
       while sio.connected:
         if data != '' and len(data) != 0:
           sio.emit('data', data)
@@ -91,7 +90,6 @@ async def stream_file(target_ip, filename):
           wf = wave.open(filename, 'rb')
           data = wf.readframes(chunk)
           print('restarting playback')
-      # print('socketio not connected!')
     except socketio.exceptions.ConnectionError as err:
       print('Connection error: %s! Retrying at %s' % (err, datetime.utcnow()))
 
